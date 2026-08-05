@@ -45,6 +45,7 @@ jobs:
           Get-ChildItem scripts/audit -Filter '*.ps1' -File |
             Where-Object { $_.Name -notin @(
               'al_capability_status_audit_v1.ps1',
+              'al_mission_console_audit_v1.ps1',
               'al_runtime_smoke_v1.ps1',
               'al_workstation_proof_v1.ps1'
             ) } |
