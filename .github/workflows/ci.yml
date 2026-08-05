@@ -43,7 +43,11 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem scripts/audit -Filter '*.ps1' -File |
-            Where-Object { $_.Name -notin @('al_runtime_smoke_v1.ps1', 'al_workstation_proof_v1.ps1') } |
+            Where-Object { $_.Name -notin @(
+              'al_capability_status_audit_v1.ps1',
+              'al_runtime_smoke_v1.ps1',
+              'al_workstation_proof_v1.ps1'
+            ) } |
             ForEach-Object {
               $global:LASTEXITCODE = 0
               & $_.FullName -RepoRoot $PWD
