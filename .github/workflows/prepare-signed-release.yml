@@ -47,9 +47,12 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem tests -Filter 'test_*.ps1' -File | Sort-Object Name | ForEach-Object {
+            $global:LASTEXITCODE = 0
             & $_.FullName -RepoRoot $env:GITHUB_WORKSPACE
             if (-not $?) { throw "TEST_FAILED: $($_.Name)" }
+            $global:LASTEXITCODE = 0
           }
+          exit 0
 
       - name: Import Windows signing certificate
         id: certificate

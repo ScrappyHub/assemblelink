@@ -30,9 +30,12 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem tests -Filter 'test_*.ps1' -File | Sort-Object Name | ForEach-Object {
+            $global:LASTEXITCODE = 0
             & $_.FullName -RepoRoot $PWD
             if (-not $?) { throw "TEST_FAILED: $($_.Name)" }
+            $global:LASTEXITCODE = 0
           }
+          exit 0
       - name: Validate manifests
         shell: pwsh
         run: ./scripts/commands/al_validate_manifests_v1.ps1 -RepoRoot $PWD
@@ -41,7 +44,13 @@ jobs:
         run: |
           Get-ChildItem scripts/audit -Filter '*.ps1' -File |
             Where-Object { $_.Name -notin @('al_runtime_smoke_v1.ps1', 'al_workstation_proof_v1.ps1') } |
-            ForEach-Object { & $_.FullName -RepoRoot $PWD }
+            ForEach-Object {
+              $global:LASTEXITCODE = 0
+              & $_.FullName -RepoRoot $PWD
+              if (-not $?) { throw "AUDIT_FAILED: $($_.Name)" }
+              $global:LASTEXITCODE = 0
+            }
+          exit 0
 
   catalog-live:
     runs-on: windows-latest
