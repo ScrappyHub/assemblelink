@@ -19,6 +19,7 @@ All notable AssembleLink changes are documented here.
 - Fixture evidence is rejected by live workstation assurance.
 - Unknown provider/update state is never represented as current.
 - Browser preview cannot execute workstation commands.
+- Vite/PostCSS development dependencies are pinned to advisory-cleared versions.
 
 ### Release blockers
 
