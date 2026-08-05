@@ -1,0 +1,13 @@
+{
+  "computer_system": {"Manufacturer":"Example Systems","Model":"Workstation X"},
+  "baseboard": {"Manufacturer":"Micro-Star International Co., Ltd.","Product":"Example Board"},
+  "bios": {"Manufacturer":"Example BIOS","SMBIOSBIOSVersion":"1.2.3"},
+  "cpu": {"Name":"AMD Ryzen Test CPU"},
+  "graphics": [{"Name":"NVIDIA Test GPU","DriverVersion":"31.0.0","Status":"OK"}],
+  "network": [{"Name":"Realtek Test Ethernet","Manufacturer":"Realtek","Status":"OK"}],
+  "audio": [{"Name":"Realtek Test Audio","Manufacturer":"Realtek","Status":"OK"}],
+  "signed_drivers": [
+    {"DeviceName":"Realtek Test Ethernet","Manufacturer":"Realtek","DriverVersion":"10.1.2","DriverDate":"20260101000000.000000+000"},
+    {"DeviceName":"Realtek Test Audio","Manufacturer":"Realtek","DriverVersion":"6.1.2","DriverDate":"20260202000000.000000+000"}
+  ]
+}

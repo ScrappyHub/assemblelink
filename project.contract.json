@@ -1,0 +1,31 @@
+{
+    "project_id":  "assemblelink",
+    "canonical_name":  "AssembleLink",
+    "ecosystem":  {
+                      "registry_schema":  "atlas.service.registry.v1",
+                      "service_id":  "assemblelink",
+                      "layer":  "development.workstation-orchestration",
+                      "role":  "Local-first workstation orchestration and capability-reconstruction platform.",
+                      "standalone_first":  true,
+                      "upstream_services":  [
+                                                "contract-registry",
+                                                "archive-recall"
+                                            ],
+                      "downstream_users":  [
+                                               "developers",
+                                               "operators",
+                                               "proteusops"
+                                           ],
+                      "contract_families":  [
+                                                "workstation",
+                                                "capability",
+                                                "toolchain",
+                                                "acquisition",
+                                                "environment",
+                                                "receipt"
+                                            ],
+                      "service_map_path":  "C:\\dev\\_ecosystem\\SERVICE_MAP.md",
+                      "registry_path":  "C:\\dev\\_ecosystem\\service.registry.json",
+                      "integration_doc_path":  "docs/canonical/ECOSYSTEM_INTEGRATION.md"
+                  }
+}

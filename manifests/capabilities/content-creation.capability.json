@@ -1,0 +1,29 @@
+{
+    "schema":  "assemblelink.capability.v1",
+    "id":  "content-creation",
+    "name":  "Content Creation",
+    "icon":  "palette",
+    "required":  [
+                     "Adobe",
+                     "OBS"
+                 ],
+    "recommended":  [
+                        "Figma",
+                        "Canva",
+                        "GIMP",
+                        "Inkscape",
+                        "Audacity",
+                        "REAPER",
+                        "Cinema 4D"
+                    ],
+    "optional":  [
+                     "Elgato",
+                     "Focusrite",
+                     "VLC"
+                 ],
+    "actions":  [
+                    "Verify Adobe licensing",
+                    "Classify audio/video devices",
+                    "Map creator export stack"
+                ]
+}

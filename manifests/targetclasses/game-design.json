@@ -1,0 +1,30 @@
+{
+    "targetclass":  "game-design",
+    "label":  "Game Design",
+    "tools":  [
+                  {
+                      "id":  "git",
+                      "name":  "Git",
+                      "command":  "git",
+                      "install_hint":  "winget install Git.Git"
+                  },
+                  {
+                      "id":  "node",
+                      "name":  "Node.js LTS",
+                      "command":  "node",
+                      "install_hint":  "winget install OpenJS.NodeJS.LTS"
+                  },
+                  {
+                      "id":  "blender",
+                      "name":  "Blender",
+                      "command":  "blender",
+                      "install_hint":  "winget install BlenderFoundation.Blender"
+                  },
+                  {
+                      "id":  "code",
+                      "name":  "VS Code",
+                      "command":  "code",
+                      "install_hint":  "winget install Microsoft.VisualStudioCode"
+                  }
+              ]
+}

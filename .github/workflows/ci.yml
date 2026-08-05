@@ -1,0 +1,52 @@
+name: Validate AssembleLink
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+        working-directory: ui
+      - run: npm test
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - run: cargo test --locked
+        working-directory: ui/src-tauri
+      - name: Test deterministic engine and threat cases
+        shell: pwsh
+        run: |
+          Get-ChildItem tests -Filter 'test_*.ps1' -File | Sort-Object Name | ForEach-Object {
+            & $_.FullName -RepoRoot $PWD
+            if (-not $?) { throw "TEST_FAILED: $($_.Name)" }
+          }
+      - name: Validate manifests
+        shell: pwsh
+        run: ./scripts/commands/al_validate_manifests_v1.ps1 -RepoRoot $PWD
+      - name: Run non-interactive source audits
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/audit -Filter '*.ps1' -File |
+            Where-Object { $_.Name -notin @('al_runtime_smoke_v1.ps1', 'al_workstation_proof_v1.ps1') } |
+            ForEach-Object { & $_.FullName -RepoRoot $PWD }
+
+  catalog-live:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every exact package identity against Winget
+        shell: pwsh
+        run: ./scripts/audit/al_catalog_verification_v1.ps1 -RepoRoot $PWD -Live

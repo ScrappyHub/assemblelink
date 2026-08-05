@@ -1,0 +1,62 @@
+{
+    "schema":  "assemblelink.docs_manifest.v1",
+    "created_utc":  "2026-06-11T20:06:58.1801496Z",
+    "docs_count":  11,
+    "items":  [
+                  {
+                      "path":  "docs\\README.md",
+                      "sha256":  "d087c5344abdcc7907961e1957bb6658227dfc026baa2142f6ab3f96e37f8fdc",
+                      "bytes":  510
+                  },
+                  {
+                      "path":  "docs\\USAGE.md",
+                      "sha256":  "428233a88060964164051046786b7880bfcf8e3c2aee8897d93e36d4f6f740c1",
+                      "bytes":  833
+                  },
+                  {
+                      "path":  "docs\\RUNBOOK.md",
+                      "sha256":  "0e16f441cacd84471172be15d8ef23724e2649eb7da2503d022cda3fb8e6cf53",
+                      "bytes":  1215
+                  },
+                  {
+                      "path":  "docs\\WHO_IS_IT_FOR.md",
+                      "sha256":  "4e763c93430d822708eca5121d28600b912e17f1f9d36578778f071687340b2d",
+                      "bytes":  470
+                  },
+                  {
+                      "path":  "docs\\THREAT_MODEL.md",
+                      "sha256":  "943920af7697a8bfcc55b6e3ee722f6eca15b75ff117bae1ca0a6ffb723f89e5",
+                      "bytes":  10069
+                  },
+                  {
+                      "path":  "docs\\INSTALL_SECURITY_MODEL.md",
+                      "sha256":  "7fbde25879fa2f3bd9b75b649a466940e1ea2efc01b5cc532c07939937f8afac",
+                      "bytes":  668
+                  },
+                  {
+                      "path":  "docs\\ROADMAP.md",
+                      "sha256":  "6f8eabd4769f8abc39d87f95afd72a92a3300b10cd934b270cec60b3211e5c27",
+                      "bytes":  768
+                  },
+                  {
+                      "path":  "docs\\WBS.md",
+                      "sha256":  "e22c80b93a7e2d665b19945417f14bd33045190648b00c9916adf10c4a59007e",
+                      "bytes":  714
+                  },
+                  {
+                      "path":  "docs\\ARCHITECTURE.md",
+                      "sha256":  "bc8266d3e5c5ef15ea1906e53a9dbc5d7facff0e5af4970dba5664d307e8560e",
+                      "bytes":  1147
+                  },
+                  {
+                      "path":  "docs\\UI_PRODUCT_GAP.md",
+                      "sha256":  "4e1560ffd9fac0a059ab7ff080849f557745ce0b9c8e352e2aadfc1b54a86798",
+                      "bytes":  693
+                  },
+                  {
+                      "path":  "docs\\_INDEX.md",
+                      "sha256":  "13d7a476e4ae8ea90800aff17e62247852de107e1ee0f86b7695300fd5fc221e",
+                      "bytes":  188
+                  }
+              ]
+}

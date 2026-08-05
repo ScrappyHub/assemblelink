@@ -1,0 +1,28 @@
+{
+    "schema":  "assemblelink.capability.v1",
+    "id":  "cybersecurity",
+    "name":  "Cybersecurity Lab",
+    "icon":  "shield",
+    "required":  [
+                     "Nmap",
+                     "Wireshark"
+                 ],
+    "recommended":  [
+                        "Burp",
+                        "Autopsy",
+                        "Wazuh",
+                        "USBPcap",
+                        "Npcap",
+                        "Application Verifier"
+                    ],
+    "optional":  [
+                     "Ghidra",
+                     "x64dbg",
+                     "VirtualBox"
+                 ],
+    "actions":  [
+                    "Add Ghidra detection rule",
+                    "Map legal/authorized-use boundary",
+                    "Add lab VM profile"
+                ]
+}

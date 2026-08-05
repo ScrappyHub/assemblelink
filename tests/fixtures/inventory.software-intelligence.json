@@ -1,0 +1,10 @@
+[
+  {"name":"Git for Windows","version":"2.50.0","publisher":"The Git Development Community","source":"fixture","install_location":"C:\\secret","uninstall_string":"evil.exe"},
+  {"name":"Microsoft Visual Studio Code","version":"1.100.0","publisher":"Microsoft Corporation","source":"fixture"},
+  {"name":"Mystery Tool","version":"4.2","publisher":"Example","source":"fixture"},
+  {"name":"Node.js","version":"","publisher":"OpenJS Foundation","source":"fixture"}
+  ,{"name":"Ghidra","version":"11.3","publisher":"National Security Agency","source":"fixture"}
+  ,{"name":"7-Zip","version":"24.0","publisher":"Igor Pavlov","source":"fixture"}
+  ,{"name":"Example SDK (x64)","version":"1.0","publisher":"Example","source":"fixture"}
+  ,{"name":"Example Support Component","version":"1.0","publisher":"Example","source":"fixture","system_component":"1"}
+]

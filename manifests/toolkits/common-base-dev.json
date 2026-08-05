@@ -1,0 +1,9 @@
+{
+  "toolkit": "common/base-dev",
+  "label": "Common Base Development",
+  "tools": [
+    { "id": "git", "name": "Git", "command": "git", "install_hint": "winget install Git.Git" },
+    { "id": "vscode", "name": "VS Code", "command": "code", "install_hint": "winget install Microsoft.VisualStudioCode" },
+    { "id": "pwsh", "name": "PowerShell 7", "command": "pwsh", "install_hint": "winget install Microsoft.PowerShell" }
+  ]
+}

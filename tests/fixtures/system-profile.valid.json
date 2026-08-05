@@ -1,0 +1,7 @@
+{
+  "computer_system":{"Manufacturer":"Example Systems","Model":"Workstation X","TotalPhysicalMemory":34359738368},
+  "operating_system":{"Caption":"Microsoft Windows 11 Pro","Version":"10.0.26100","BuildNumber":"26100","OSArchitecture":"64-bit","FreePhysicalMemory":16777216},
+  "cpu":{"Name":"Example 8-Core CPU","NumberOfCores":8,"NumberOfLogicalProcessors":16,"MaxClockSpeed":4200},
+  "graphics":[{"Name":"Example GPU","DriverVersion":"1.2.3","AdapterRAM":2147483648}],
+  "disks":[{"DeviceID":"C:","VolumeName":"System","FileSystem":"NTFS","Size":1099511627776,"FreeSpace":549755813888}]
+}

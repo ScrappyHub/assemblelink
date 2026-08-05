@@ -1,0 +1,10 @@
+{
+  "toolkit": "software-dev/core",
+  "label": "Software Development Core",
+  "tools": [
+    { "id": "node", "name": "Node.js LTS", "command": "node", "install_hint": "winget install OpenJS.NodeJS.LTS" },
+    { "id": "npm", "name": "npm", "command": "npm", "install_hint": "winget install OpenJS.NodeJS.LTS" },
+    { "id": "python", "name": "Python", "command": "python", "install_hint": "winget install Python.Python.3.12" },
+    { "id": "docker", "name": "Docker Desktop", "command": "docker", "install_hint": "winget install Docker.DockerDesktop" }
+  ]
+}
