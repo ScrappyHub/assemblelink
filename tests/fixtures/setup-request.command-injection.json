@@ -1,1 +1,1 @@
-{"schema":"assemblelink.setup_request.v1","toolkit_ids":[],"software_ids":["git; Start-Process calc.exe"]}
+{"schema":"assemblelink.setup_request.v1","toolkit_ids":[],"software_ids":["git; Start-Process calc.exe"],"machine_profile":{"machine_type":"desktop","max_allocation_mib":102400}}

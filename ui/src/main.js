@@ -26,6 +26,8 @@ let setupLoadError = "";
 let setupMode = "setup";
 let selectedToolkitIds = new Set();
 let selectedSoftwareIds = new Set();
+let machineType = "desktop";
+let maxAllocationGb = 100;
 let setupPlan = null;
 let setupResult = null;
 let setupProgress = null;
@@ -143,6 +145,66 @@ async function refreshSystemProfile(){
   catch(err){systemProfile=null;systemProfileError=String(err);}
 }
 
+function selectedAllocationEstimate(){
+  const catalogItems=setupData?.catalog?.items||[];
+  const toolkits=setupData?.toolkits?.toolkits||[];
+  const policy=setupData?.allocation_policy;
+  if(!policy){return {mib:0,itemCount:0,complete:false};}
+  const catalogById=new Map(catalogItems.map(item=>[item.id,item]));
+  const selected=new Set(selectedSoftwareIds);
+  for(const toolkitId of selectedToolkitIds){
+    const toolkit=toolkits.find(item=>item.id===toolkitId);
+    for(const id of toolkit?.software_ids||[]){selected.add(id);}
+  }
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(const id of [...selected]){
+      for(const dependency of catalogById.get(id)?.dependencies||[]){
+        if(!selected.has(dependency)){selected.add(dependency);changed=true;}
+      }
+    }
+  }
+  let mib=0;
+  for(const id of selected){
+    const item=catalogById.get(id);
+    const estimate=policy.item_overrides_mib?.[id]??policy.category_estimates_mib?.[item?.category];
+    if(!Number.isInteger(Number(estimate))||Number(estimate)<=0){return {mib,itemCount:selected.size,complete:false};}
+    mib+=Number(estimate);
+  }
+  return {mib,itemCount:selected.size,complete:true};
+}
+
+function formatAllocation(mib){
+  return mib>=1024?`${(mib/1024).toFixed(mib%1024===0?0:1)} GB`:`${mib} MB`;
+}
+
+function renderMachineProfile(){
+  const estimate=selectedAllocationEstimate();
+  const limitMib=maxAllocationGb*1024;
+  const freeGb=Number(systemProfile?.storage?.free_gb);
+  const overLimit=estimate.complete&&estimate.mib>limitMib;
+  const overFree=Number.isFinite(freeGb)&&estimate.mib>freeGb*1024;
+  return `<section class="machinePlanner" aria-labelledby="machinePlannerTitle">
+    <div class="sectionHeading"><div><p class="eyebrow">Machine limits</p><h3 id="machinePlannerTitle">What are you setting up?</h3><p>These choices are sealed into the reviewed setup plan.</p></div></div>
+    <div class="machineTypeChoices" role="radiogroup" aria-label="Machine type">
+      <label class="${machineType==="desktop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="desktop" ${machineType==="desktop"?"checked":""}><b>Desktop</b><span>More room for larger SDKs, containers, engines, and local AI.</span></label>
+      <label class="${machineType==="laptop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="laptop" ${machineType==="laptop"?"checked":""}><b>Laptop</b><span>Keep the planned footprint tighter for portable storage.</span></label>
+    </div>
+    <div class="allocationControl">
+      <label for="maxAllocationGb"><b>Maximum planned allocation</b><span>How much storage may this setup plan use?</span></label>
+      <div><input id="maxAllocationGb" type="number" min="5" max="2048" step="1" value="${escapeHtml(maxAllocationGb)}"><span>GB</span></div>
+    </div>
+    <div class="allocationReadout ${overLimit||overFree?"overLimit":""}">
+      <div><span>Selected estimate</span><b>${estimate.itemCount?formatAllocation(estimate.mib):"Choose tools"}</b><small>${estimate.itemCount} resolved tools</small></div>
+      <div><span>Your ceiling</span><b>${escapeHtml(maxAllocationGb)} GB</b><small>${Number.isFinite(freeGb)?`${escapeHtml(freeGb)} GB currently free`:"Live free space unavailable"}</small></div>
+    </div>
+    ${overLimit?`<p class="allocationWarning" role="alert">This selection is about ${formatAllocation(estimate.mib-limitMib)} over your chosen limit. Remove tools or raise the ceiling.</p>`:""}
+    ${!overLimit&&overFree?`<p class="allocationWarning" role="alert">This estimate is larger than the currently reported free storage.</p>`:""}
+    <p class="allocationLimit">Planning estimate only. Projects, package caches, containers, virtual machines, AI models, games, and later SDK downloads are not included.</p>
+  </section>`;
+}
+
 function renderSetupConsole(){
   const kits=setupData?.toolkits?.toolkits || [];
   const items=setupData?.catalog?.items || [];
@@ -152,7 +214,9 @@ function renderSetupConsole(){
   const planItems=setupPlan?.items || [];
   const installedByCatalogId=new Map((softwareIntelligence?.items||[]).filter(x=>x.installed&&x.catalog_id).map(x=>[x.catalog_id,x]));
   const selectedCount=selectedToolkitIds.size+selectedSoftwareIds.size;
-  const canReview=selectedCount>0;
+  const allocationEstimate=selectedAllocationEstimate();
+  const allocationValid=Number.isInteger(maxAllocationGb)&&maxAllocationGb>=5&&maxAllocationGb<=2048&&allocationEstimate.complete&&allocationEstimate.mib<=maxAllocationGb*1024;
+  const canReview=selectedCount>0&&allocationValid;
   return `
     <section class="panel setupConsole">
       <p class="eyebrow">Start here</p>
@@ -170,13 +234,14 @@ function renderSetupConsole(){
         <button class="bigAction ${setupMode==="update"?"active":""}" data-setup-mode="update">Update My Tools<span>Find approved installed-tool upgrades.</span></button>
         <button class="bigAction ${setupMode==="restore"?"active":""}" data-setup-mode="restore">Restore Previous Setup<span>Load a verified AssembleLink blueprint.</span></button>
       </div>
+      ${setupMode!=="update"?renderMachineProfile():""}
       ${setupMode==="setup"?`<h3>Choose a job toolkit</h3>${renderToolkitGroups(kits)}`:""}
       ${setupMode==="browse"?`<h3>Approved software and CLI catalog</h3><div class="catalogToolbar"><label><span>Search tools</span><input id="catalogSearch" type="search" placeholder="Try Git, Python, Docker, or security" value="${escapeHtml(catalogSearch)}"></label><label><span>Category</span><select id="catalogCategorySelect">${categories.sort().map(c=>`<option value="${escapeHtml(c)}" ${catalogCategory===c?"selected":""}>${escapeHtml(c==="all"?"All categories":c.replaceAll("-"," "))}</option>`).join("")}</select></label></div><p class="catalogCount">${visibleItems.length} of ${items.length} trusted catalog entries shown</p><div class="setupChoices softwareChoices">${visibleItems.map(x=>{const installed=installedByCatalogId.get(x.id);return `<label class="${installed?"isInstalled":""}"><input type="checkbox" data-software-id="${escapeHtml(x.id)}" ${selectedSoftwareIds.has(x.id)?"checked":""}><b>${escapeHtml(x.name)}${installed?` <em class="installedMark">Installed${installed.installed_version?` · ${escapeHtml(installed.installed_version)}`:""}</em>`:""}</b><span>${escapeHtml((x.category||x.capabilities?.[0]||"software").replaceAll("-"," "))} · ${escapeHtml((x.license||"license review").replaceAll("_"," "))}</span><small>${escapeHtml(x.winget_id||"Manual review")}</small></label>`;}).join("")}</div>`:""}
-      ${setupMode==="restore"?`<h3>Restore a verified blueprint</h3><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json"><button id="importBlueprint" class="primaryAction">Validate and review blueprint</button>`:setupMode==="update"?`<h3>Check approved tools for updates</h3><p>AssembleLink asks Winget about exact approved package identities. Review is still required before updating.</p><button id="scanUpdates" class="primaryAction">Check for updates</button>`:`<div class="selectionSummary"><span><b>${selectedCount}</b> ${selectedCount===1?"selection":"selections"} ready to review</span><button id="reviewSetup" class="primaryAction" ${canReview?"":"disabled"}>Review download &amp; setup plan</button></div>${canReview?"":`<p class="selectionHint">Choose at least one toolkit or software item to continue.</p>`}`}
+      ${setupMode==="restore"?`<h3>Restore a verified blueprint</h3><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json"><button id="importBlueprint" class="primaryAction">Validate and review blueprint</button>`:setupMode==="update"?`<h3>Check approved tools for updates</h3><p>AssembleLink asks Winget about exact approved package identities. Review is still required before updating.</p><button id="scanUpdates" class="primaryAction">Check for updates</button>`:`<div class="selectionSummary"><span><b>${selectedCount}</b> ${selectedCount===1?"selection":"selections"} · ${allocationEstimate.itemCount?`${formatAllocation(allocationEstimate.mib)} estimated`:"no footprint yet"}</span><button id="reviewSetup" class="primaryAction" ${canReview?"":"disabled"}>Review download &amp; setup plan</button></div>${selectedCount===0?`<p class="selectionHint">Choose at least one toolkit or software item to continue.</p>`:!allocationValid?`<p class="selectionHint">Adjust the storage ceiling before continuing.</p>`:""}`}
       ${setupPlan?`<button id="exportBlueprint" class="secondaryAction">Export this selection as a blueprint</button>`:""}
       <p role="status">${escapeHtml(operationMessage)}</p>
     </section>
-    ${setupPlan?`<section class="panel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${table(["Tool","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
+    ${setupPlan?`<section class="panel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${setupPlan.machine_profile?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} estimated of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>`:""}${table(["Tool","Estimated size","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
     ${renderSetupProgress()}
     ${setupResult?renderSetupResult():""}
   `;
@@ -1306,11 +1371,23 @@ function render(){
     if(hint){hint.hidden=count>0;}
   };
   document.querySelectorAll("[data-toolkit-id]").forEach(input=>input.addEventListener("change",()=>{
-    const id=input.getAttribute("data-toolkit-id"); input.checked?selectedToolkitIds.add(id):selectedToolkitIds.delete(id); setupPlan=null; updateSelectionSummary();
+    const id=input.getAttribute("data-toolkit-id"); input.checked?selectedToolkitIds.add(id):selectedToolkitIds.delete(id); setupPlan=null; render();
   }));
   document.querySelectorAll("[data-software-id]").forEach(input=>input.addEventListener("change",()=>{
-    const id=input.getAttribute("data-software-id"); input.checked?selectedSoftwareIds.add(id):selectedSoftwareIds.delete(id); setupPlan=null; updateSelectionSummary();
+    const id=input.getAttribute("data-software-id"); input.checked?selectedSoftwareIds.add(id):selectedSoftwareIds.delete(id); setupPlan=null; render();
   }));
+  document.querySelectorAll("[data-machine-type]").forEach(input=>input.addEventListener("change",()=>{
+    machineType=input.getAttribute("data-machine-type")==="laptop"?"laptop":"desktop";
+    if(machineType==="laptop"&&maxAllocationGb===100){maxAllocationGb=50;}
+    if(machineType==="desktop"&&maxAllocationGb===50){maxAllocationGb=100;}
+    setupPlan=null;render();
+  }));
+  const maxAllocationInput=document.getElementById("maxAllocationGb");
+  if(maxAllocationInput){maxAllocationInput.addEventListener("change",()=>{
+    const next=Number(maxAllocationInput.value);
+    maxAllocationGb=Number.isInteger(next)?Math.max(5,Math.min(2048,next)):maxAllocationGb;
+    setupPlan=null;render();
+  });}
   const catalogSearchInput=document.getElementById("catalogSearch");
   if(catalogSearchInput){catalogSearchInput.addEventListener("input",()=>{catalogSearch=catalogSearchInput.value;const pos=catalogSearchInput.selectionStart;render();const next=document.getElementById("catalogSearch");next?.focus();next?.setSelectionRange(pos,pos);});}
   const catalogCategorySelect=document.getElementById("catalogCategorySelect");
@@ -1319,7 +1396,7 @@ function render(){
   if(reviewSetup){ reviewSetup.addEventListener("click",async()=>{
     operationMessage="Building a deterministic setup plan…"; setupResult=null; setupProgress=null; render();
     try{
-      setupPlan=JSON.parse(await invokeDesktop("build_setup_plan",{toolkitIds:[...selectedToolkitIds],softwareIds:[...selectedSoftwareIds]}));
+      setupPlan=JSON.parse(await invokeDesktop("build_setup_plan",{toolkitIds:[...selectedToolkitIds],softwareIds:[...selectedSoftwareIds],machineType,maxAllocationGib:maxAllocationGb}));
       operationMessage="Review every tool below. Nothing has been installed.";
     }catch(err){ operationMessage=String(err); setupPlan=null; }
     render();
@@ -1352,7 +1429,7 @@ function render(){
   if(importBlueprint){importBlueprint.addEventListener("click",async()=>{
     const blueprintPath=document.getElementById("blueprintPath")?.value.trim()||"";
     operationMessage="Validating blueprint integrity and catalog identities…";render();
-    try{setupPlan=JSON.parse(await invokeDesktop("import_blueprint",{blueprintPath}));operationMessage="Blueprint verified. Review the resolved setup plan below.";}
+    try{setupPlan=JSON.parse(await invokeDesktop("import_blueprint",{blueprintPath,machineType,maxAllocationGib:maxAllocationGb}));operationMessage="Blueprint verified against this machine profile and allocation limit. Review the resolved setup plan below.";}
     catch(err){setupPlan=null;operationMessage=String(err);}render();
   });}
   const approveSetup=document.getElementById("approveSetup");
@@ -1362,7 +1439,8 @@ function render(){
     const automatic=(setupPlan?.items||[]).filter(x=>x.mode==="winget");
     const manual=(setupPlan?.items||[]).filter(x=>x.mode==="manual_review");
     const approvalLead=resuming?"Resume this exact interrupted setup plan? Completed automatic identities will be checked again before they are skipped.":"Approve this exact setup plan?";
-    const approved=window.confirm(`${approvalLead}\n\nAutomatic (${automatic.length}):\n• ${automatic.map(x=>x.name).join("\n• ")}\n\nManual follow-up (${manual.length}):\n• ${manual.map(x=>x.name).join("\n• ")}\n\nA durable receipt and integrity hash will be created.`);
+    const allocationSummary=setupPlan?.allocation?`\n\nMachine: ${setupPlan.machine_profile.machine_type}\nPlanned storage: ${formatAllocation(setupPlan.allocation.estimated_installed_mib)} of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}`:"";
+    const approved=window.confirm(`${approvalLead}${allocationSummary}\n\nAutomatic (${automatic.length}):\n• ${automatic.map(x=>x.name).join("\n• ")}\n\nManual follow-up (${manual.length}):\n• ${manual.map(x=>x.name).join("\n• ")}\n\nA durable receipt and integrity hash will be created.`);
     if(!approved){ operationMessage="Setup cancelled. Nothing was installed."; render(); return; }
     const planId=setupPlan.plan_id;
     setupRunning=true;
@@ -1420,7 +1498,7 @@ function render(){
   if(exportMachineBlueprint){exportMachineBlueprint.addEventListener("click",async()=>{
     operationMessage="Refreshing installed software and building a verified machine blueprint…";render();
     try{
-      const result=sanitizeStateValue(JSON.parse(await invokeDesktop("export_machine_blueprint")));
+      const result=sanitizeStateValue(JSON.parse(await invokeDesktop("export_machine_blueprint",{machineType,maxAllocationGib:maxAllocationGb})));
       operationMessage=`Blueprint exported to ${result.path}. ${result.catalog_matched_installed} installed catalog identities resolved to ${result.resolved_plan_items} plan items; ${result.unmatched_installed} unmatched installed entries were not guessed.`;
       await loadReceipts();
     }catch(err){operationMessage=String(err);}

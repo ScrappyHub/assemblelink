@@ -8,16 +8,24 @@ param(
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 function WriteUtf8([string]$Path,[string]$Text){ $d=Split-Path -Parent $Path; if($d){New-Item -ItemType Directory -Force -Path $d|Out-Null}; [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false))) }
 function Sha([string]$Path){$stream=[IO.File]::OpenRead($Path);$sha=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose();$stream.Dispose()}}
-function PlanDigest($toolkitIds,$items){
+function PlanDigest($toolkitIds,$machineProfile,$items){
   $lines=@('schema=assemblelink.setup_plan.v1');foreach($id in @($toolkitIds|Sort-Object -Unique)){$lines+=('toolkit='+[string]$id)}
-  foreach($x in @($items|Sort-Object id)){$lines+=('item='+(@([string]$x.id,[string]$x.name,[string]$x.source,[string]$x.winget_id,[string]$x.license,[string][bool]$x.admin_required,[string][bool]$x.reboot_required,(@($x.dependencies|Sort-Object)-join ','),[string]$x.mode,[string]$x.status,$(if($x.PSObject.Properties.Name-contains'installed_version'){[string]$x.installed_version}else{''}),$(if($x.PSObject.Properties.Name-contains'available_version'){[string]$x.available_version}else{''}))-join '|'))}
+  $hasProfile=$null-ne$machineProfile
+  if($hasProfile){$lines+=('machine_type='+[string]$machineProfile.machine_type);$lines+=('max_allocation_mib='+[string][int64]$machineProfile.max_allocation_mib)}
+  foreach($x in @($items|Sort-Object id)){$fields=@([string]$x.id,[string]$x.name,[string]$x.source,[string]$x.winget_id,[string]$x.license,[string][bool]$x.admin_required,[string][bool]$x.reboot_required,(@($x.dependencies|Sort-Object)-join ','),[string]$x.mode,[string]$x.status);if($hasProfile){$fields+=[string][int64]$x.estimated_installed_mib};$fields+=@($(if($x.PSObject.Properties.Name-contains'installed_version'){[string]$x.installed_version}else{''}),$(if($x.PSObject.Properties.Name-contains'available_version'){[string]$x.available_version}else{''}));$lines+=('item='+($fields-join '|'))}
   $bytes=(New-Object Text.UTF8Encoding($false)).GetBytes((@($lines)-join "`n")+"`n");$sha=[Security.Cryptography.SHA256]::Create();try{return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
 }
 if(-not(Test-Path $PlanPath -PathType Leaf)){ throw 'SETUP_PLAN_NOT_FOUND' }
 $plan=Get-Content $PlanPath -Raw|ConvertFrom-Json
 if($plan.schema -ne 'assemblelink.setup_plan.v1'){ throw 'SETUP_PLAN_SCHEMA_REJECTED' }
 if([string]$plan.plan_id -ne $ApprovalPlanId){ throw 'SETUP_APPROVAL_PLAN_MISMATCH' }
-if((PlanDigest @($plan.toolkit_ids) @($plan.items)) -ne [string]$plan.plan_id){ throw 'SETUP_PLAN_CONTENT_HASH_MISMATCH' }
+$machineProfile=$(if($plan.PSObject.Properties.Name-contains'machine_profile'){$plan.machine_profile}else{$null})
+if($null-ne$machineProfile){
+  if($machineProfile.machine_type -notin @('desktop','laptop')){throw 'SETUP_PLAN_MACHINE_TYPE_REJECTED'}
+  $maxAllocationMib=[int64]$machineProfile.max_allocation_mib;$estimatedTotalMib=[int64]0;foreach($plannedItem in @($plan.items)){$estimatedTotalMib += [int64]$plannedItem.estimated_installed_mib}
+  if($maxAllocationMib -lt 5120 -or $estimatedTotalMib -gt $maxAllocationMib -or [int64]$plan.allocation.estimated_installed_mib -ne $estimatedTotalMib -or -not[bool]$plan.allocation.within_limit){throw 'SETUP_PLAN_ALLOCATION_REJECTED'}
+}
+if((PlanDigest @($plan.toolkit_ids) $machineProfile @($plan.items)) -ne [string]$plan.plan_id){ throw 'SETUP_PLAN_CONTENT_HASH_MISMATCH' }
 $state=Join-Path $RepoRoot 'state'; $receipts=Join-Path $RepoRoot 'proofs\receipts'; New-Item -ItemType Directory -Force $state,$receipts|Out-Null
 $progressPath=Join-Path $state 'setup_execution.progress.json'; $results=@(); $started=(Get-Date).ToUniversalTime()
 $resumedFrom=0

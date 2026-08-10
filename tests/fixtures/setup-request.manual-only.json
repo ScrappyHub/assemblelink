@@ -1,1 +1,1 @@
-{"schema":"assemblelink.setup_request.v1","toolkit_ids":[],"software_ids":["hashcat"]}
+{"schema":"assemblelink.setup_request.v1","toolkit_ids":[],"software_ids":["hashcat"],"machine_profile":{"machine_type":"laptop","max_allocation_mib":20480}}

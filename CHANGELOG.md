@@ -12,6 +12,7 @@ All notable AssembleLink changes are documented here.
 - Approval-bound Winget planning and execution with durable progress, interruption recovery, verification, and receipts.
 - Native workstation assurance that verifies sealed system, driver, software, and catalog evidence.
 - Clean-machine release matrix auditing and fail-closed Authenticode gates.
+- Desktop/laptop setup profiles with a bounded maximum planned storage allocation, dependency-aware footprint estimates, and visible headroom.
 
 ### Security
 
@@ -20,6 +21,7 @@ All notable AssembleLink changes are documented here.
 - Unknown provider/update state is never represented as current.
 - Browser preview cannot execute workstation commands.
 - Vite/PostCSS development dependencies are pinned to advisory-cleared versions.
+- Machine type, storage ceiling, and per-item estimates are bound into the approved plan digest; oversized and tampered plans fail closed.
 
 ### Release blockers
 

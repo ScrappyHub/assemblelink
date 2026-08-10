@@ -2,6 +2,8 @@ param([string]$RepoRoot='C:\dev\assemblelink')
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 $catalog=Get-Content (Join-Path $RepoRoot 'catalog\approved_software_sources.v1.json') -Raw|ConvertFrom-Json
 $toolkits=Get-Content (Join-Path $RepoRoot 'catalog\toolkits.v1.json') -Raw|ConvertFrom-Json
+$allocation=Get-Content (Join-Path $RepoRoot 'catalog\allocation_policy.v1.json') -Raw|ConvertFrom-Json
+if($allocation.schema-ne'assemblelink.allocation_policy.v1'-or[int64]$allocation.minimum_allocation_mib-ne5120-or[int64]$allocation.maximum_allocation_mib-ne2097152){throw 'ALLOCATION_POLICY_REJECTED'}
 $ids=@{}; foreach($x in @($catalog.items)){
   $id=[string]$x.id
   if($id -notmatch '^[a-z0-9][a-z0-9-]{0,63}$'){throw "UNSAFE_CATALOG_ID: $id"}
@@ -23,6 +25,8 @@ $ids=@{}; foreach($x in @($catalog.items)){
   if(@($x.capabilities).Count-eq0){throw "MISSING_CAPABILITY: $id"};foreach($cap in @($x.capabilities)){if([string]$cap-notin@('software-development','local-ai','infrastructure','game-development','cybersecurity','content-creation')){throw "UNKNOWN_CAPABILITY: $id -> $cap"}}
 }
 foreach($x in @($catalog.items)){if($x.PSObject.Properties.Name -contains 'dependencies'){foreach($dep in @($x.dependencies)){if(-not $ids.ContainsKey([string]$dep)){throw "UNKNOWN_CATALOG_DEPENDENCY: $($x.id) -> $dep"}}}}
+foreach($category in @($catalog.items.category|Sort-Object -Unique)){if(-not($allocation.category_estimates_mib.PSObject.Properties.Name-contains[string]$category)-or[int64]$allocation.category_estimates_mib.([string]$category)-le0){throw "ALLOCATION_CATEGORY_ESTIMATE_MISSING: $category"}}
+foreach($override in @($allocation.item_overrides_mib.PSObject.Properties)){if(-not$ids.ContainsKey([string]$override.Name)-or[int64]$override.Value-le0){throw "ALLOCATION_OVERRIDE_REJECTED: $($override.Name)"}}
 $visiting=@{};$visited=@{}
 function Visit([string]$id){if($visiting.ContainsKey($id)){throw "CATALOG_DEPENDENCY_CYCLE: $id"};if($visited.ContainsKey($id)){return};$visiting[$id]=$true;$entry=@($catalog.items|Where-Object id -eq $id)[0];if($entry.PSObject.Properties.Name -contains 'dependencies'){foreach($dep in @($entry.dependencies)){Visit ([string]$dep)}};$visiting.Remove($id);$visited[$id]=$true}
 foreach($id in @($ids.Keys|Sort-Object)){Visit $id}

@@ -6,6 +6,7 @@ try{
 function Run([string]$script,[string[]]$arguments){& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot $script) @arguments;if($LASTEXITCODE -ne 0){throw "TEST_COMMAND_FAILED: $script"}}
 Run 'scripts\engine\al_setup_plan_v1.ps1' @('-RepoRoot',$RepoRoot,'-RequestPath',(Join-Path $RepoRoot 'tests\fixtures\setup-request.valid.json'))
 $plan=Get-Content (Join-Path $RepoRoot 'state\setup_plan.latest.json') -Raw|ConvertFrom-Json
+if($plan.machine_profile.machine_type-ne'desktop'-or[int64]$plan.machine_profile.max_allocation_mib-ne204800-or-not$plan.allocation.within_limit){throw 'MACHINE_ALLOCATION_PROFILE_NOT_BOUND'}
 Run 'scripts\engine\al_setup_execute_v1.ps1' @('-RepoRoot',$RepoRoot,'-PlanPath',(Join-Path $RepoRoot "state\setup_plan.$($plan.plan_id).json"),'-ApprovalPlanId',[string]$plan.plan_id)
 $resultPath=Join-Path $RepoRoot 'state\setup_execution.latest.json';$hash=(Get-FileHash $resultPath -Algorithm SHA256).Hash;$side=((Get-Content ($resultPath+'.sha256') -Raw)-split '\s+')[0]
 if($hash.ToLowerInvariant() -ne $side.ToLowerInvariant()){throw 'RESULT_HASH_MISMATCH'};$firstResult=Get-Content $resultPath -Raw|ConvertFrom-Json;if($firstResult.executed){throw 'DRY_RUN_EXECUTED'}
@@ -29,6 +30,12 @@ Run 'scripts\engine\al_setup_execute_v1.ps1' @('-RepoRoot',$RepoRoot,'-PlanPath'
 $tamperedPlan=Join-Path $env:TEMP 'AssembleLink-Plan-tampered.json';$tamperObj=Get-Content (Join-Path $RepoRoot "state\setup_plan.$($plan.plan_id).json") -Raw|ConvertFrom-Json;$tamperObj.items[0].name='Injected Name';[IO.File]::WriteAllText($tamperedPlan,($tamperObj|ConvertTo-Json -Depth 20),(New-Object Text.UTF8Encoding($false)))
 $ErrorActionPreference='Continue';& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_setup_execute_v1.ps1') -RepoRoot $RepoRoot -PlanPath $tamperedPlan -ApprovalPlanId ([string]$plan.plan_id) *> $null;$ErrorActionPreference='Stop'
 if($LASTEXITCODE -eq 0){throw 'TAMPERED_APPROVED_PLAN_ACCEPTED'};Remove-Item $tamperedPlan -Force -ErrorAction SilentlyContinue
+$tamperedAllocation=Join-Path $env:TEMP 'AssembleLink-Plan-allocation-tampered.json';$allocationObj=Get-Content (Join-Path $RepoRoot "state\setup_plan.$($plan.plan_id).json") -Raw|ConvertFrom-Json;$allocationObj.machine_profile.max_allocation_mib=2097152;[IO.File]::WriteAllText($tamperedAllocation,($allocationObj|ConvertTo-Json -Depth 20),(New-Object Text.UTF8Encoding($false)))
+$ErrorActionPreference='Continue';& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_setup_execute_v1.ps1') -RepoRoot $RepoRoot -PlanPath $tamperedAllocation -ApprovalPlanId ([string]$plan.plan_id) *> $null;$ErrorActionPreference='Stop'
+if($LASTEXITCODE -eq 0){throw 'TAMPERED_ALLOCATION_PLAN_ACCEPTED'};Remove-Item $tamperedAllocation -Force -ErrorAction SilentlyContinue
+$overBudgetPath=Join-Path $RepoRoot 'tests\fixtures\setup-request.over-budget.json';$overBudget=[ordered]@{schema='assemblelink.setup_request.v1';toolkit_ids=@();software_ids=@('visual-studio-community');machine_profile=[ordered]@{machine_type='laptop';max_allocation_mib=5120}};[IO.File]::WriteAllText($overBudgetPath,($overBudget|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+$ErrorActionPreference='Continue';& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_setup_plan_v1.ps1') -RepoRoot $RepoRoot -RequestPath $overBudgetPath *> $null;$ErrorActionPreference='Stop'
+if($LASTEXITCODE -eq 0){throw 'OVER_BUDGET_PLAN_ACCEPTED'}
 $bad=@('setup-request.unknown-toolkit.json','setup-request.command-injection.json')
 $ErrorActionPreference='Continue'
 foreach($file in $bad){& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_setup_plan_v1.ps1') -RepoRoot $RepoRoot -RequestPath (Join-Path $RepoRoot "tests\fixtures\$file") *> $null;if($LASTEXITCODE -eq 0){throw "UNSAFE_REQUEST_ACCEPTED: $file"}}
@@ -36,9 +43,9 @@ $ErrorActionPreference='Stop'
 Run 'scripts\engine\al_setup_plan_v1.ps1' @('-RepoRoot',$RepoRoot,'-RequestPath',(Join-Path $RepoRoot 'tests\fixtures\setup-request.valid.json'))
 Run 'scripts\engine\al_blueprint_export_v1.ps1' @('-RepoRoot',$RepoRoot)
 $blueprint=Get-ChildItem (Join-Path $RepoRoot 'exports') -Filter 'AssembleLink-Blueprint-*.json'|Sort-Object LastWriteTimeUtc -Descending|Select-Object -First 1
-Run 'scripts\engine\al_blueprint_import_v1.ps1' @('-RepoRoot',$RepoRoot,'-BlueprintPath',$blueprint.FullName)
+Run 'scripts\engine\al_blueprint_import_v1.ps1' @('-RepoRoot',$RepoRoot,'-BlueprintPath',$blueprint.FullName,'-MachineType','laptop','-MaxAllocationMib','204800')
 $tampered=Join-Path $env:TEMP 'AssembleLink-Blueprint-tampered.json';[IO.File]::WriteAllText($tampered,(Get-Content $blueprint.FullName -Raw)+' ',(New-Object Text.UTF8Encoding($false)));[IO.File]::Copy($blueprint.FullName+'.sha256',$tampered+'.sha256',$true)
-$ErrorActionPreference='Continue'; & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_blueprint_import_v1.ps1') -RepoRoot $RepoRoot -BlueprintPath $tampered *> $null; $ErrorActionPreference='Stop'
+$ErrorActionPreference='Continue'; & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_blueprint_import_v1.ps1') -RepoRoot $RepoRoot -BlueprintPath $tampered -MachineType laptop -MaxAllocationMib 204800 *> $null; $ErrorActionPreference='Stop'
 if($LASTEXITCODE -eq 0){throw 'TAMPERED_BLUEPRINT_ACCEPTED'}
 Remove-Item $tampered,($tampered+'.sha256') -Force -ErrorAction SilentlyContinue
 $trustedScripts=@('scripts\engine\al_setup_execute_v1.ps1','scripts\engine\al_software_intelligence_v1.ps1','scripts\engine\al_blueprint_export_v1.ps1','scripts\engine\al_blueprint_import_v1.ps1','scripts\commands\al_driver_profile_v1.ps1');foreach($trustedScript in $trustedScripts){$source=Get-Content (Join-Path $RepoRoot $trustedScript) -Raw;if($source-match'Get-FileHash'){throw "OPTIONAL_HASH_CMDLET_IN_PACKAGED_RUNTIME: $trustedScript"};if($source-notmatch'Security\.Cryptography\.SHA256'){throw "DOTNET_HASHING_NOT_WIRED: $trustedScript"}}

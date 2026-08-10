@@ -15,7 +15,7 @@ test("all installs use the hardened plan approval flow", () => {
 test("machine rebuild export uses live catalog identities", async () => {
   const rust=await readFile(new URL("../src-tauri/src/main.rs",import.meta.url),"utf8");
   assert.match(source, /id="exportMachineBlueprint"/);
-  assert.match(source, /invokeDesktop\("export_machine_blueprint"\)/);
+  assert.match(source, /invokeDesktop\("export_machine_blueprint",\{machineType,maxAllocationGib:maxAllocationGb\}\)/);
   assert.match(source, /Unmatched applications are counted but never converted into guessed installers/);
   assert.doesNotMatch(source, /invokeDesktop\("export_profile"|invokeDesktop\("import_latest_profile"/);
   assert.match(rust, /fn export_machine_blueprint/);
@@ -34,6 +34,12 @@ test("new-machine setup is toolkit driven and approval bound", () => {
   assert.match(source, /invokeDesktop\("execute_setup"/);
   assert.match(source, /const planId=setupPlan\.plan_id/);
   assert.match(source, /invokeDesktop\("execute_setup",\{planId,approved:true\}\)/);
+  assert.match(source, /data-machine-type="desktop"/);
+  assert.match(source, /data-machine-type="laptop"/);
+  assert.match(source, /id="maxAllocationGb"/);
+  assert.match(source, /maxAllocationGib:maxAllocationGb/);
+  assert.match(source, /Maximum planned allocation/);
+  assert.match(source, /Planning estimate only/);
 });
 
 test("update and verified blueprint flows are exposed", () => {

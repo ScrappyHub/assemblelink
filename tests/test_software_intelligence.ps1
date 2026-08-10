@@ -29,5 +29,7 @@ $signingFailedClosed=$false;try{& (Join-Path $RepoRoot 'scripts\release\sign_and
 if(-not$signingFailedClosed){throw 'SIGNING_GATE_DID_NOT_FAIL_CLOSED'}
 $updatePath=& (Join-Path $RepoRoot 'scripts\engine\al_update_plan_v1.ps1') -RepoRoot $testRoot|Select-Object -Last 1;$update=Get-Content -LiteralPath $updatePath -Raw|ConvertFrom-Json
 if($update.item_count -ne 1 -or $update.items[0].id -ne 'git' -or $update.items[0].installed_version -ne '2.50.0' -or $update.items[0].available_version -ne '2.51.0'){throw 'UPDATE_PLAN_NOT_BOUND_TO_INTELLIGENCE'}
+$updateExecution=& (Join-Path $RepoRoot 'scripts\engine\al_setup_execute_v1.ps1') -RepoRoot $testRoot -PlanPath $updatePath -ApprovalPlanId ([string]$update.plan_id)|Select-Object -Last 1
+$updateResult=Get-Content -LiteralPath $updateExecution -Raw|ConvertFrom-Json;if($updateResult.executed-or$updateResult.plan_id-ne$update.plan_id){throw 'LEGACY_UPDATE_PLAN_EXECUTION_REGRESSED'}
 Write-Host 'ASSEMBLELINK_SOFTWARE_INTELLIGENCE_TEST_OK'
 }finally{if(Test-Path $testRoot){$resolved=(Resolve-Path $testRoot).Path;if($resolved.StartsWith([IO.Path]::GetFullPath($env:TEMP),[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $resolved -Recurse -Force}}}

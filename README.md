@@ -4,6 +4,8 @@ AssembleLink is a local-first workstation intelligence and reconstruction platfo
 
 It scans a machine, understands installed software, hardware, drivers, and capability groups, recommends missing tools, builds approved install queues, executes user-approved installs, and stamps receipts proving what happened.
 
+New-machine planning includes a desktop/laptop profile and a user-selected maximum storage allocation. AssembleLink resolves toolkit dependencies, shows a conservative application-footprint estimate, and refuses to build a setup plan above that ceiling. Estimates do not include future project data, caches, containers, virtual machines, AI models, games, or later SDK downloads.
+
 ## Documentation
 
 - [Usage](docs/USAGE.md)

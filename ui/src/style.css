@@ -768,6 +768,26 @@ pre {
 .setupConsole { border: 1px solid #4f7cff; box-shadow: 0 18px 50px rgba(28,72,170,.12); }
 .setupModes { margin-bottom: 22px; }
 .setupModes .active { outline: 3px solid #4f7cff; }
+.machinePlanner { margin:0 0 24px; padding:18px; border:1px solid var(--line); border-radius:16px; background:var(--panel-soft); }
+.machinePlanner h3 { margin:3px 0 4px; }
+.machineTypeChoices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.machineTypeChoices label { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; padding:14px; border:1px solid var(--line); border-radius:13px; cursor:pointer; background:var(--panel); }
+.machineTypeChoices label.selected { border-color:#4f7cff; box-shadow:0 0 0 2px rgba(79,124,255,.18); }
+.machineTypeChoices input { grid-row:1/3; width:18px; height:18px; margin-top:3px; }
+.machineTypeChoices span,.allocationControl span,.allocationReadout span,.allocationReadout small,.allocationLimit { color:var(--muted); }
+.allocationControl { display:flex; justify-content:space-between; align-items:center; gap:18px; padding:14px; border:1px solid var(--line); border-radius:13px; background:var(--panel); }
+.allocationControl label { display:grid; gap:4px; }
+.allocationControl > div { display:flex; align-items:center; gap:8px; }
+.allocationControl input { width:112px; min-height:44px; padding:8px 10px; color:var(--text); background:var(--panel-soft); border:1px solid var(--line); border-radius:10px; font:inherit; }
+.allocationReadout { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+.allocationReadout > div { display:grid; gap:3px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+.allocationReadout b { font-size:18px; }
+.allocationReadout.overLimit > div:first-child { border-color:#ef6161; }
+.allocationWarning { margin:10px 0 0; padding:10px 12px; color:#fecaca; background:rgba(127,29,29,.18); border:1px solid rgba(239,97,97,.5); border-radius:10px; }
+.allocationLimit { margin:12px 0 0; font-size:.82rem; line-height:1.45; }
+.planAllocation { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; padding:12px 14px; border:1px solid #4f7cff; border-radius:12px; background:rgba(47,111,237,.1); }
+.planAllocation span { padding:3px 8px; color:#bfdbfe; background:rgba(47,111,237,.22); border-radius:999px; text-transform:capitalize; }
+.planAllocation small { color:var(--muted); }
 .setupChoices { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin:12px 0 20px; }
 .setupChoices label { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:start; padding:14px; border:1px solid var(--line); border-radius:12px; cursor:pointer; background:var(--panel); }
 .setupChoices input { grid-row:1/4; margin-top:4px; width:18px; height:18px; }
@@ -1102,6 +1122,8 @@ pre {
   .catalogToolbar { grid-template-columns:1fr; }
   .selectionSummary { align-items:stretch; flex-direction:column; }
   .assuranceStrip,.assuranceAttention { grid-template-columns:1fr; }
+  .machineTypeChoices,.allocationReadout { grid-template-columns:1fr; }
+  .allocationControl { align-items:flex-start; flex-direction:column; }
 }
 button:focus-visible,input:focus-visible { outline:3px solid rgba(96,165,250,.55); outline-offset:2px; }
 @media (max-width:1180px) {

@@ -1,4 +1,9 @@
-param([Parameter(Mandatory=$true)][string]$RepoRoot,[Parameter(Mandatory=$true)][string]$BlueprintPath)
+param(
+  [Parameter(Mandatory=$true)][string]$RepoRoot,
+  [Parameter(Mandatory=$true)][string]$BlueprintPath,
+  [Parameter(Mandatory=$true)][ValidateSet('desktop','laptop')][string]$MachineType,
+  [Parameter(Mandatory=$true)][ValidateRange(5120,2097152)][int64]$MaxAllocationMib
+)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 function WriteUtf8($p,$t){$d=Split-Path -Parent $p;if($d){New-Item -ItemType Directory -Force $d|Out-Null};[IO.File]::WriteAllText($p,$t,(New-Object Text.UTF8Encoding($false)))}
 function Sha([string]$Path){$stream=[IO.File]::OpenRead($Path);$sha=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose();$stream.Dispose()}}
@@ -9,7 +14,7 @@ $expected=((Get-Content $sidecar -Raw).Trim() -split '\s+')[0];$actual=Sha $Blue
 if($expected -ne $actual){throw 'BLUEPRINT_HASH_MISMATCH'}
 $blueprint=Get-Content $BlueprintPath -Raw|ConvertFrom-Json
 if($blueprint.schema -ne 'assemblelink.blueprint.v1'){throw 'BLUEPRINT_SCHEMA_REJECTED'}
-$request=[ordered]@{schema='assemblelink.setup_request.v1';toolkit_ids=@($blueprint.toolkit_ids);software_ids=@($blueprint.software_ids)}
+$request=[ordered]@{schema='assemblelink.setup_request.v1';toolkit_ids=@($blueprint.toolkit_ids);software_ids=@($blueprint.software_ids);machine_profile=[ordered]@{machine_type=$MachineType;max_allocation_mib=$MaxAllocationMib}}
 $requestPath=Join-Path $RepoRoot 'state\setup_request.imported.json';WriteUtf8 $requestPath ($request|ConvertTo-Json -Depth 10)
 & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'scripts\engine\al_setup_plan_v1.ps1') -RepoRoot $RepoRoot -RequestPath $requestPath
 if($LASTEXITCODE -ne 0){throw "BLUEPRINT_PLAN_FAILED: $LASTEXITCODE"}

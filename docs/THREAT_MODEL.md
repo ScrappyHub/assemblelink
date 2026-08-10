@@ -56,6 +56,9 @@
 | Concurrent IPC runtime corruption | High | Desktop operations share a process-wide runtime lock across trusted reseeding, engine execution, and state reads so one command cannot truncate policy or scripts used by another |
 | Host PowerShell module variance | High | Packaged integrity operations use the .NET SHA-256 implementation directly and do not depend on optional PowerShell hashing cmdlets; BOM-tolerant trusted JSON parsing is regression-tested |
 | Legacy executor bypass | Critical | The older capability queue IPC surface is not registered; every UI install path converges on the content-hashed setup plan, explicit approval, exact Winget source, and post-install verification |
+| Machine profile or storage ceiling is changed after approval | High | Desktop/laptop type, maximum allocation, per-item estimates, and the resolved item set are included in the setup-plan digest; execution recomputes the digest and rejects altered allocation fields |
+| Estimated application size is presented as an exact disk guarantee | Medium | Estimates come from a versioned conservative category policy with reviewed heavyweight overrides; the UI and plan identify the method and explicitly exclude projects, caches, containers, VMs, AI models, games, and later SDK downloads |
+| Oversized toolkit bypasses the user's chosen allocation | High | The trusted planner resolves dependencies, sums every positive per-item estimate, and fails closed before approval when the total exceeds the bounded 5–2048 GiB user ceiling |
 
 ## Safety rules
 

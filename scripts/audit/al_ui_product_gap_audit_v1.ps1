@@ -13,6 +13,8 @@ $checks=@(
   [pscustomobject]@{ item="Configure Approved Toolkit primary action"; ok=($raw -match 'Configure Approved Toolkit') },
   [pscustomobject]@{ item="job toolkit handoff"; ok=($raw -match 'data-install-recommended' -and $raw -match 'toolkitByCapability') },
   [pscustomobject]@{ item="content-hashed setup flow"; ok=($raw -match 'build_setup_plan' -and $raw -match 'execute_setup') },
+  [pscustomobject]@{ item="machine type and allocation planner"; ok=($raw -match 'data-machine-type="desktop"' -and $raw -match 'data-machine-type="laptop"' -and $raw -match 'maxAllocationGib') },
+  [pscustomobject]@{ item="allocation limitations visible"; ok=($raw -match 'Planning estimate only' -and $raw -match 'virtual machines' -and $raw -match 'AI models') },
   [pscustomobject]@{ item="legacy install IPC absent"; ok=($raw -notmatch 'invokeDesktop\("(prepare_install|execute_install)') },
   [pscustomobject]@{ item="human status mapper"; ok=($raw -match 'function humanStatus') },
   [pscustomobject]@{ item="live setup result renderer"; ok=($raw -match 'function renderSetupResult') },

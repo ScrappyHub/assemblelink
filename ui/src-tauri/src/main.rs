@@ -11,6 +11,7 @@ use tauri::Manager;
 const TRUSTED_RUNTIME_FILES: &[(&str, &[u8])] = &[
   ("catalog/approved_software_sources.v1.json", include_bytes!("../../../catalog/approved_software_sources.v1.json")),
   ("catalog/toolkits.v1.json", include_bytes!("../../../catalog/toolkits.v1.json")),
+  ("catalog/allocation_policy.v1.json", include_bytes!("../../../catalog/allocation_policy.v1.json")),
   ("scripts/engine/al_setup_plan_v1.ps1", include_bytes!("../../../scripts/engine/al_setup_plan_v1.ps1")),
   ("scripts/engine/al_setup_execute_v1.ps1", include_bytes!("../../../scripts/engine/al_setup_execute_v1.ps1")),
   ("scripts/engine/al_update_plan_v1.ps1", include_bytes!("../../../scripts/engine/al_update_plan_v1.ps1")),
@@ -231,10 +232,17 @@ fn read_setup_recovery(root: &Path) -> Result<serde_json::Value, String> {
       "reboot_required":item.get("reboot_required").and_then(serde_json::Value::as_bool).unwrap_or(false),
       "dependencies":dependencies,
       "mode":bounded_progress_text(item.get("mode"),128),
-      "status":bounded_progress_text(item.get("status"),128)
+      "status":bounded_progress_text(item.get("status"),128),
+      "estimated_installed_mib":item.get("estimated_installed_mib").and_then(serde_json::Value::as_u64).unwrap_or(0)
     }));
   }
   let automatic_count = safe_items.iter().filter(|item| item["mode"] == "winget").count();
+  let machine_profile = plan.get("machine_profile").and_then(serde_json::Value::as_object).map(|profile| serde_json::json!({
+    "machine_type":bounded_progress_text(profile.get("machine_type"),32),
+    "max_allocation_mib":profile.get("max_allocation_mib").and_then(serde_json::Value::as_u64).unwrap_or(0)
+  }));
+  let estimated_installed_mib: u64 = safe_items.iter().filter_map(|item| item.get("estimated_installed_mib").and_then(serde_json::Value::as_u64)).sum();
+  let max_allocation_mib = machine_profile.as_ref().and_then(|profile| profile.get("max_allocation_mib")).and_then(serde_json::Value::as_u64).unwrap_or(0);
   Ok(serde_json::json!({
     "schema":"assemblelink.setup_recovery.v1",
     "available":true,
@@ -246,6 +254,8 @@ fn read_setup_recovery(root: &Path) -> Result<serde_json::Value, String> {
       "item_count":total,
       "automatic_count":automatic_count,
       "manual_count":items.len().saturating_sub(automatic_count),
+      "machine_profile":machine_profile,
+      "allocation":if max_allocation_mib > 0 { serde_json::json!({"estimated_installed_mib":estimated_installed_mib,"max_allocation_mib":max_allocation_mib,"remaining_planned_mib":max_allocation_mib.saturating_sub(estimated_installed_mib),"within_limit":estimated_installed_mib <= max_allocation_mib}) } else { serde_json::Value::Null },
       "items":safe_items
     }
   }))
@@ -401,7 +411,8 @@ fn get_setup_data(app: AppHandle) -> Result<String, String> {
   let (_guard, root) = locked_runtime(&app)?;
   let catalog = read_json_file(&root.join("catalog/approved_software_sources.v1.json"))?;
   let toolkits = read_json_file(&root.join("catalog/toolkits.v1.json"))?;
-  serde_json::to_string(&serde_json::json!({"catalog":catalog,"toolkits":toolkits})).map_err(|e| e.to_string())
+  let allocation_policy = read_json_file(&root.join("catalog/allocation_policy.v1.json"))?;
+  serde_json::to_string(&serde_json::json!({"catalog":catalog,"toolkits":toolkits,"allocation_policy":allocation_policy})).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -413,11 +424,13 @@ fn refresh_software_intelligence(app: AppHandle, force_refresh: bool) -> Result<
 }
 
 #[tauri::command]
-fn build_setup_plan(app: AppHandle, toolkit_ids: Vec<String>, software_ids: Vec<String>) -> Result<String, String> {
+fn build_setup_plan(app: AppHandle, toolkit_ids: Vec<String>, software_ids: Vec<String>, machine_type: String, max_allocation_gib: u64) -> Result<String, String> {
+  if !matches!(machine_type.as_str(), "desktop" | "laptop") { return Err("MACHINE_TYPE_REJECTED".into()); }
+  if !(5..=2048).contains(&max_allocation_gib) { return Err("MAX_ALLOCATION_REJECTED".into()); }
   let (_guard, root) = locked_runtime(&app)?;
   fs::create_dir_all(root.join("state")).map_err(|e| e.to_string())?;
   let request_path = root.join("state/setup_request.pending.json");
-  let request = serde_json::json!({"schema":"assemblelink.setup_request.v1","toolkit_ids":toolkit_ids,"software_ids":software_ids});
+  let request = serde_json::json!({"schema":"assemblelink.setup_request.v1","toolkit_ids":toolkit_ids,"software_ids":software_ids,"machine_profile":{"machine_type":machine_type,"max_allocation_mib":max_allocation_gib * 1024}});
   fs::write(&request_path, serde_json::to_vec_pretty(&request).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
   let request_text = request_path.to_string_lossy().to_string();
   run_ps(&root, "scripts/engine/al_setup_plan_v1.ps1", &["-RequestPath", &request_text])?;
@@ -474,14 +487,16 @@ fn export_blueprint(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn export_machine_blueprint(app: AppHandle) -> Result<String, String> {
+fn export_machine_blueprint(app: AppHandle, machine_type: String, max_allocation_gib: u64) -> Result<String, String> {
+  if !matches!(machine_type.as_str(), "desktop" | "laptop") { return Err("MACHINE_TYPE_REJECTED".into()); }
+  if !(5..=2048).contains(&max_allocation_gib) { return Err("MAX_ALLOCATION_REJECTED".into()); }
   let (_guard, root) = locked_runtime(&app)?;
   run_ps(&root, "scripts/engine/al_software_intelligence_v1.ps1", &["-ForceRefresh"])?;
   let intelligence = read_json_file(&root.join("state/software_intelligence.latest.json"))?;
   let (software_ids, unmatched_installed) = installed_catalog_ids(&intelligence);
   fs::create_dir_all(root.join("state")).map_err(|e| e.to_string())?;
   let request_path = root.join("state/setup_request.machine_export.json");
-  let request = serde_json::json!({"schema":"assemblelink.setup_request.v1","toolkit_ids":[],"software_ids":software_ids});
+  let request = serde_json::json!({"schema":"assemblelink.setup_request.v1","toolkit_ids":[],"software_ids":software_ids,"machine_profile":{"machine_type":machine_type,"max_allocation_mib":max_allocation_gib * 1024}});
   fs::write(&request_path, serde_json::to_vec_pretty(&request).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
   let request_text = request_path.to_string_lossy().to_string();
   run_ps(&root, "scripts/engine/al_setup_plan_v1.ps1", &["-RequestPath", &request_text])?;
@@ -498,11 +513,14 @@ fn export_machine_blueprint(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn import_blueprint(app: AppHandle, blueprint_path: String) -> Result<String, String> {
+fn import_blueprint(app: AppHandle, blueprint_path: String, machine_type: String, max_allocation_gib: u64) -> Result<String, String> {
   let path = PathBuf::from(&blueprint_path);
   if !path.is_absolute() || path.extension().and_then(|x| x.to_str()) != Some("json") { return Err("INVALID_BLUEPRINT_PATH".into()); }
+  if !matches!(machine_type.as_str(), "desktop" | "laptop") { return Err("MACHINE_TYPE_REJECTED".into()); }
+  if !(5..=2048).contains(&max_allocation_gib) { return Err("MAX_ALLOCATION_REJECTED".into()); }
   let (_guard, root) = locked_runtime(&app)?;
-  run_ps(&root, "scripts/engine/al_blueprint_import_v1.ps1", &["-BlueprintPath", &blueprint_path])?;
+  let max_allocation_mib = (max_allocation_gib * 1024).to_string();
+  run_ps(&root, "scripts/engine/al_blueprint_import_v1.ps1", &["-BlueprintPath", &blueprint_path, "-MachineType", &machine_type, "-MaxAllocationMib", &max_allocation_mib])?;
   read_state(&root, "setup_plan.latest.json")
 }
 
