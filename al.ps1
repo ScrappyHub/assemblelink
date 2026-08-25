@@ -82,7 +82,7 @@ else{
     }
   }
 }; if($missing.Count){ Write-Host "DOCTOR_TARGETCLASS_YELLOW: $($m.targetclass) missing=$($missing -join ',')" -ForegroundColor Yellow } else { Write-Host "DOCTOR_TARGETCLASS_GREEN: $($m.targetclass)" -ForegroundColor Green } }; Write-Host "ASSEMBLELINK_DOCTOR_OK" -ForegroundColor Green }
-  "install" { Write-Host "ASSEMBLELINK_INSTALL_PLAN_READY" -ForegroundColor Green; $rows=@(PlanRows $TargetClass); $rows|Format-Table -AutoSize; if(-not $Apply){ Write-Host "ASSEMBLELINK_INSTALL_DRY_RUN_ONLY" -ForegroundColor Yellow; return }; foreach($r in $rows|?{$_.action -eq "plan_install"}){ $cmd=$r.install_hint+" --accept-package-agreements --accept-source-agreements"; Write-Host "ASSEMBLELINK_APPLY_INSTALL_START: $($r.id)" -ForegroundColor Cyan; cmd.exe /c $cmd; if($LASTEXITCODE -ne 0){throw "INSTALL_FAILED: $($r.id)"} }; Write-Host "ASSEMBLELINK_APPLY_OK" -ForegroundColor Green }
+  "install" { throw "LEGACY_INSTALL_DISABLED: Use the AssembleLink desktop Setup Center. Installation requires a content-hashed plan, explicit approval, fixed package arguments, and a sealed receipt." }
   "versioncheck" { PlanRows $TargetClass | Select id,installed,install_hint | Format-Table -AutoSize; Write-Host "ASSEMBLELINK_VERSIONCHECK_OK" -ForegroundColor Green }
   "diff" { Write-Host "ASSEMBLELINK_DIFF_CLEAN: no inventory changes since baseline" -ForegroundColor Green }
   "selftest" { & $MyInvocation.MyCommand.Path targetclasses; & $MyInvocation.MyCommand.Path status; & $MyInvocation.MyCommand.Path doctor; & $MyInvocation.MyCommand.Path plan -TargetClass cybersecurity; & $MyInvocation.MyCommand.Path versioncheck -TargetClass cybersecurity; Write-Host "ASSEMBLELINK_SELFTEST_OK" -ForegroundColor Green }

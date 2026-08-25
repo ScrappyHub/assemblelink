@@ -25,8 +25,8 @@
                   },
                   {
                       "path":  "docs\\THREAT_MODEL.md",
-                      "sha256":  "04192a00df0d8068caf70794ed2b0cc8cc4daa8e4a84c3b60ea2e1e095d9e7c3",
-                      "bytes":  10900
+                      "sha256":  "132e2c64c74d39880b182eb3e50f79447875bd0e36216ae2e0f17bddf8f5e735",
+                      "bytes":  11325
                   },
                   {
                       "path":  "docs\\INSTALL_SECURITY_MODEL.md",
@@ -45,8 +45,8 @@
                   },
                   {
                       "path":  "docs\\ARCHITECTURE.md",
-                      "sha256":  "bc8266d3e5c5ef15ea1906e53a9dbc5d7facff0e5af4970dba5664d307e8560e",
-                      "bytes":  1147
+                      "sha256":  "95953d01bb34a8f71c1320a91098d0041d683ce9b6f161c236780462f04e5498",
+                      "bytes":  1873
                   },
                   {
                       "path":  "docs\\UI_PRODUCT_GAP.md",

@@ -23,6 +23,8 @@
 | Misleading install result | Medium | Classify outcomes accurately |
 | Receipt tampering or replay overwrite | Medium | Immutable per-run result and receipt names, independently recomputed SHA-256 sidecars, and negative replay tests; publisher signing remains a release gate |
 | Catalog command injection | Critical | Catalog stores package identities, never executable command strings; execution builds a fixed argument vector |
+| Legacy script accidentally shipped as an alternate installer | Critical | Production bundles no repository trees; an audited embedded allowlist is the complete runtime payload, and the legacy CLI installer fails closed |
+| Malicious repository manifest | High | Repository analysis accepts only bounded top-level files, parses data without executing project content, and maps only to existing approved catalog identities |
 | Path traversal through IDs | High | Capability, toolkit, and software IDs are allowlisted and never used as unchecked paths |
 | Malicious blueprint | High | Imports accept catalog IDs only, reject unknown schema/IDs, and cannot embed commands or URLs |
 | Rebuild export turns unknown software into an installer | High | Machine blueprint export refreshes local inventory, includes only installed entries with valid approved catalog IDs, deduplicates identities, resolves them through the normal content-hashed planner, and reports unmatched software without guessing a source or command |

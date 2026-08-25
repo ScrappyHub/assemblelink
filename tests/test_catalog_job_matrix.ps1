@@ -18,7 +18,7 @@ foreach($item in $plan.items){$source=$catalogById[[string]$item.id];if($source.
 $families=@($toolkits.toolkits.job_family|Sort-Object -Unique);if($families.Count-lt9){throw 'JOB_FAMILY_COVERAGE_TOO_SMALL'}
 $categories=@($catalog.items.category|Sort-Object -Unique);if($categories.Count-lt20){throw 'CATEGORY_COVERAGE_TOO_SMALL'}
 $cli=@($catalog.items|Where-Object{$_.category-in@('cli-utility','cloud-cli','media-cli')});if($cli.Count-lt10){throw 'CLI_COVERAGE_TOO_SMALL'}
-$rust=Get-Content (Join-Path $RepoRoot 'ui\src-tauri\src\main.rs') -Raw;if($rust-match'generate_handler!\[[^\]]*(prepare_install|execute_install)'){throw 'LEGACY_INSTALL_IPC_STILL_EXPOSED'};if($rust-notmatch'TRUSTED_RUNTIME_FILES'-or$rust-notmatch'seed_trusted_runtime\(&root\)'){throw 'TRUSTED_RUNTIME_NOT_WIRED'}
+$rust=Get-Content (Join-Path $RepoRoot 'ui\src-tauri\src\main.rs') -Raw;if($rust-match'generate_handler!\[[^\]]*(prepare_install|execute_install)'){throw 'LEGACY_INSTALL_IPC_STILL_EXPOSED'};if($rust-notmatch'TRUSTED_RUNTIME_FILES'-or$rust-notmatch'reset_trusted_runtime\(&root\)'){throw 'TRUSTED_RUNTIME_NOT_WIRED'}
 [pscustomobject]@{catalog_items=$catalog.items.Count;categories=$categories.Count;job_toolkits=$toolkits.toolkits.Count;job_families=$families.Count;cli_tools=$cli.Count;resolved_plan_items=$plan.items.Count}|Format-List
 Write-Host 'ASSEMBLELINK_CATALOG_JOB_MATRIX_TEST_OK'
 }finally{if(Test-Path $testRoot){$resolved=(Resolve-Path $testRoot).Path;if($resolved.StartsWith([IO.Path]::GetFullPath($env:TEMP),[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $resolved -Recurse -Force}}}

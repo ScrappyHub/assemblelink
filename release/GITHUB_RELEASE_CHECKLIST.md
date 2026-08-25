@@ -2,8 +2,8 @@
 
 ## Repository
 
-- [ ] Restore or initialize valid Git metadata.
-- [ ] Configure the intended GitHub remote.
+- [x] Restore or initialize valid Git metadata.
+- [x] Configure the intended GitHub remote.
 - [ ] Decide and add the project license before making the repository public.
 - [ ] Enable branch protection and require the test workflow.
 - [ ] Review `SECURITY.md` contact instructions.

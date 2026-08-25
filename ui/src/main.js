@@ -41,6 +41,8 @@ let receiptIndex = null;
 let receiptLoadError = "";
 let workstationAssurance = null;
 let workstationAssuranceError = "";
+let repositoryPath = "";
+let repositoryAnalysis = null;
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const rawHtml=html=>({__trustedHtml:String(html)});
 
@@ -232,16 +234,17 @@ function renderSetupConsole(){
         <button class="bigAction ${setupMode==="setup"?"active":""}" data-setup-mode="setup">Set Up This Computer<span>Install complete curated toolkits.</span></button>
         <button class="bigAction ${setupMode==="browse"?"active":""}" data-setup-mode="browse">Browse All Software<span>Build a custom toolkit.</span></button>
         <button class="bigAction ${setupMode==="update"?"active":""}" data-setup-mode="update">Update My Tools<span>Find approved installed-tool upgrades.</span></button>
+        <button class="bigAction ${setupMode==="repository"?"active":""}" data-setup-mode="repository">Analyze a Project<span>Detect runtimes and toolchains from repository manifests.</span></button>
         <button class="bigAction ${setupMode==="restore"?"active":""}" data-setup-mode="restore">Restore Previous Setup<span>Load a verified AssembleLink blueprint.</span></button>
       </div>
-      ${setupMode!=="update"?renderMachineProfile():""}
+      ${!['update','repository'].includes(setupMode)?renderMachineProfile():""}
       ${setupMode==="setup"?`<h3>Choose a job toolkit</h3>${renderToolkitGroups(kits)}`:""}
       ${setupMode==="browse"?`<h3>Approved software and CLI catalog</h3><div class="catalogToolbar"><label><span>Search tools</span><input id="catalogSearch" type="search" placeholder="Try Git, Python, Docker, or security" value="${escapeHtml(catalogSearch)}"></label><label><span>Category</span><select id="catalogCategorySelect">${categories.sort().map(c=>`<option value="${escapeHtml(c)}" ${catalogCategory===c?"selected":""}>${escapeHtml(c==="all"?"All categories":c.replaceAll("-"," "))}</option>`).join("")}</select></label></div><p class="catalogCount">${visibleItems.length} of ${items.length} trusted catalog entries shown</p><div class="setupChoices softwareChoices">${visibleItems.map(x=>{const installed=installedByCatalogId.get(x.id);return `<label class="${installed?"isInstalled":""}"><input type="checkbox" data-software-id="${escapeHtml(x.id)}" ${selectedSoftwareIds.has(x.id)?"checked":""}><b>${escapeHtml(x.name)}${installed?` <em class="installedMark">Installed${installed.installed_version?` · ${escapeHtml(installed.installed_version)}`:""}</em>`:""}</b><span>${escapeHtml((x.category||x.capabilities?.[0]||"software").replaceAll("-"," "))} · ${escapeHtml((x.license||"license review").replaceAll("_"," "))}</span><small>${escapeHtml(x.winget_id||"Manual review")}</small></label>`;}).join("")}</div>`:""}
-      ${setupMode==="restore"?`<h3>Restore a verified blueprint</h3><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json"><button id="importBlueprint" class="primaryAction">Validate and review blueprint</button>`:setupMode==="update"?`<h3>Check approved tools for updates</h3><p>AssembleLink asks Winget about exact approved package identities. Review is still required before updating.</p><button id="scanUpdates" class="primaryAction">Check for updates</button>`:`<div class="selectionSummary"><span><b>${selectedCount}</b> ${selectedCount===1?"selection":"selections"} · ${allocationEstimate.itemCount?`${formatAllocation(allocationEstimate.mib)} estimated`:"no footprint yet"}</span><button id="reviewSetup" class="primaryAction" ${canReview?"":"disabled"}>Review download &amp; setup plan</button></div>${selectedCount===0?`<p class="selectionHint">Choose at least one toolkit or software item to continue.</p>`:!allocationValid?`<p class="selectionHint">Adjust the storage ceiling before continuing.</p>`:""}`}
+      ${setupMode==="repository"?renderRepositoryAnalyzer():setupMode==="restore"?`<h3>Restore a verified blueprint</h3><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json"><button id="importBlueprint" class="primaryAction">Validate and review blueprint</button>`:setupMode==="update"?`<h3>Check approved tools for updates</h3><p>AssembleLink asks Winget about exact approved package identities. Review is still required before updating.</p><button id="scanUpdates" class="primaryAction">Check for updates</button>`:`<div class="selectionSummary"><span><b>${selectedCount}</b> ${selectedCount===1?"selection":"selections"} · ${allocationEstimate.itemCount?`${formatAllocation(allocationEstimate.mib)} estimated`:"no footprint yet"}</span><button id="reviewSetup" class="primaryAction" ${canReview?"":"disabled"}>Review download &amp; setup plan</button></div>${selectedCount===0?`<p class="selectionHint">Choose at least one toolkit or software item to continue.</p>`:!allocationValid?`<p class="selectionHint">Adjust the storage ceiling before continuing.</p>`:""}`}
       ${setupPlan?`<button id="exportBlueprint" class="secondaryAction">Export this selection as a blueprint</button>`:""}
       <p role="status">${escapeHtml(operationMessage)}</p>
     </section>
-    ${setupPlan?`<section class="panel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${setupPlan.machine_profile?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} estimated of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>`:""}${table(["Tool","Estimated size","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
+    ${setupPlan?`<section class="panel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${setupPlan.machine_profile?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} estimated of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>${setupPlan.profile_guidance?.caution_count?`<p class="allocationWarning">${escapeHtml(setupPlan.profile_guidance.caution_count)} tools may have substantial storage, battery, memory, GPU, or thermal impact on a laptop.</p>`:""}`:""}${table(["Tool","Estimated size","Machine fit","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",x.profile_advisory==="review_laptop_resource_impact"?"Review laptop impact":"Compatible",x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
     ${renderSetupProgress()}
     ${setupResult?renderSetupResult():""}
   `;
@@ -276,6 +279,11 @@ function renderSetupProgress(){
 function renderToolkitGroups(kits){
   const families=[...new Set(kits.map(k=>k.job_family||"Other"))].sort();
   return families.map(family=>`<section class="toolkitFamily"><h4>${escapeHtml(family)}</h4><div class="setupChoices">${kits.filter(k=>(k.job_family||"Other")===family).map(k=>`<label><input type="checkbox" data-toolkit-id="${escapeHtml(k.id)}" ${selectedToolkitIds.has(k.id)?"checked":""}><b>${escapeHtml(k.name)}</b><span>${escapeHtml(k.description)}</span><small>${k.software_ids.length} reviewed tools</small></label>`).join("")}</div></section>`).join("");
+}
+
+function renderRepositoryAnalyzer(){
+  const result=repositoryAnalysis;
+  return `<section class="repositoryAnalyzer"><h3>Analyze a development project</h3><p>Choose a local project folder. AssembleLink reads supported top-level manifests, maps required runtimes to approved catalog identities, and creates sealed evidence. It never executes project files.</p><div class="repositoryPath"><input id="repositoryPath" value="${escapeHtml(repositoryPath)}" placeholder="C:\\dev\\my-project" autocomplete="off"><button id="analyzeRepository" class="primaryAction">Analyze project</button></div>${result?`<div class="repositoryResult"><h4>${escapeHtml(result.repository?.name||"Project")} · ${escapeHtml(result.summary?.status||"analyzed")}</h4><p>${escapeHtml(result.summary?.recognized_manifests||0)} manifests · ${escapeHtml(result.summary?.resolved_catalog_items||0)} approved tools recommended</p>${(result.requirements||[]).length?table(["Requirement","Evidence","Version","Approved tools"],result.requirements.map(x=>[x.kind,x.evidence,x.version_constraint||"Review latest compatible",(x.catalog_ids||[]).join(", ")])):`<p>No supported top-level manifests were found.</p>`}${(result.recommended_software_ids||[]).length?`<button id="useRepositoryRecommendations" class="primaryAction">Review recommended setup</button>`:""}</div>`:""}</section>`;
 }
 
 function renderSetupResult(){
@@ -1320,6 +1328,7 @@ function render(){
           ${setupNav("setup","Job toolkits",String(setupData?.toolkits?.toolkits?.length||""))}
           ${setupNav("browse","Software & CLI catalog",String(setupData?.catalog?.items?.length||""))}
           ${setupNav("update","Updates",softwareIntelligence?.summary?.updates_available?String(softwareIntelligence.summary.updates_available):"")}
+          ${setupNav("repository","Analyze a project","")}
           <small>THIS MACHINE</small>
           ${nav("software","Installed software")}
           ${nav("stacks","Job readiness")}
@@ -1406,6 +1415,18 @@ function render(){
     operationMessage="Scanning installed software and checking approved providers…";setupPlan=null;render();
     try{await refreshSoftwareIntelligence(true);setupPlan=JSON.parse(await invokeDesktop("build_update_plan"));operationMessage=setupPlan.package_manager_available?(setupPlan.item_count?`${setupPlan.item_count} approved updates found.`:"No approved updates were reported. Check unknown statuses before assuming everything is current."):"Winget is unavailable. Install or repair Windows App Installer to check Winget-managed updates.";}
     catch(err){operationMessage=String(err);}render();
+  });}
+  const repositoryPathInput=document.getElementById("repositoryPath");
+  if(repositoryPathInput){repositoryPathInput.addEventListener("input",()=>{repositoryPath=repositoryPathInput.value;});}
+  const analyzeRepository=document.getElementById("analyzeRepository");
+  if(analyzeRepository){analyzeRepository.addEventListener("click",async()=>{
+    repositoryPath=repositoryPathInput?.value.trim()||"";repositoryAnalysis=null;operationMessage="Reading supported project manifests…";render();
+    try{repositoryAnalysis=sanitizeStateValue(JSON.parse(await invokeDesktop("analyze_repository",{repositoryPath})));operationMessage="Project requirements mapped to the approved catalog. Nothing was installed.";}
+    catch(err){operationMessage=String(err);}render();
+  });}
+  const useRepositoryRecommendations=document.getElementById("useRepositoryRecommendations");
+  if(useRepositoryRecommendations){useRepositoryRecommendations.addEventListener("click",()=>{
+    selectedToolkitIds.clear();selectedSoftwareIds=new Set(repositoryAnalysis?.recommended_software_ids||[]);setupMode="browse";sidebarContext="browse";setupPlan=null;operationMessage="Repository recommendations selected. Choose a machine profile, review storage, then build the plan.";render();
   });}
   const refreshSoftware=document.getElementById("refreshSoftware");
   if(refreshSoftware){refreshSoftware.addEventListener("click",async()=>{

@@ -1117,10 +1117,15 @@ pre {
 }
 .selectionSummary .primaryAction { margin:0; }
 .selectionHint { margin:8px 2px 0; color:var(--muted); font-size:.9rem; }
+.repositoryAnalyzer { display:grid; gap:12px; margin-top:18px; }
+.repositoryPath { display:grid; grid-template-columns:minmax(260px,1fr) auto; gap:10px; }
+.repositoryPath input { min-height:44px; padding:9px 11px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:10px; font:inherit; }
+.repositoryResult { padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel-soft); }
 @media (max-width:700px) {
   .setupSteps { grid-template-columns:1fr; }
   .catalogToolbar { grid-template-columns:1fr; }
   .selectionSummary { align-items:stretch; flex-direction:column; }
+  .repositoryPath { grid-template-columns:1fr; }
   .assuranceStrip,.assuranceAttention { grid-template-columns:1fr; }
   .machineTypeChoices,.allocationReadout { grid-template-columns:1fr; }
   .allocationControl { align-items:flex-start; flex-direction:column; }

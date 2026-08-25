@@ -132,7 +132,7 @@ for($idx=0; $idx -lt $queue.Count; $idx++){
   $item=$queue[$idx]
   $name=[string]$item.name
   $mode=[string]$item.install_mode
-  $cmd=[string]$item.install_command
+  $packageIdentity=$(if($item.PSObject.Properties.Name-contains'package_identity'){[string]$item.package_identity}else{[string]$item.winget_id})
 
   $progress.current=$name
   $progress.updated_utc=(Get-Date).ToUniversalTime().ToString("o")
@@ -145,12 +145,12 @@ for($idx=0; $idx -lt $queue.Count; $idx++){
   $stdoutTail=""
   $stderrTail=""
 
-  if($mode -ne "winget" -or [string]::IsNullOrWhiteSpace($cmd)){
+  if($mode -ne "winget" -or [string]::IsNullOrWhiteSpace($packageIdentity)){
     $status="manual_review_required"
     $message="No automatic install command."
   } elseif(-not $Execute){
     $status="dry_run"
-    $message="Would run: $cmd"
+    $message="Would install exact approved Winget identity: $packageIdentity"
   } else {
     Write-Host ("["+($idx+1)+"/"+$queue.Count+"] Installing: "+$name) -ForegroundColor Cyan
 
@@ -177,7 +177,7 @@ for($idx=0; $idx -lt $queue.Count; $idx++){
     name=$name
     mode=$mode
     winget_id=[string]$item.winget_id
-    command=$cmd
+    package_identity=$packageIdentity
     status=$status
     exit_code=$exitCode
     duration_seconds=$duration

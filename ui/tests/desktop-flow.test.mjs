@@ -23,6 +23,15 @@ test("machine rebuild export uses live catalog identities", async () => {
   assert.doesNotMatch(rust, /fn export_profile|fn import_latest_profile/);
 });
 
+test("repository manifests map to approved setup recommendations", async () => {
+  const rust=await readFile(new URL("../src-tauri/src/main.rs",import.meta.url),"utf8");
+  assert.match(source,/Analyze a Project/);
+  assert.match(source,/invokeDesktop\("analyze_repository",\{repositoryPath\}\)/);
+  assert.match(source,/recommended_software_ids/);
+  assert.match(rust,/fn analyze_repository/);
+  assert.match(rust,/al_repository_requirements_v1\.ps1/);
+});
+
 test("browser preview cannot impersonate a successful install", () => {
   assert.match(source, /requires the installed AssembleLink desktop app/);
   assert.doesNotMatch(source, /role="status">\$\{operationMessage\}/);

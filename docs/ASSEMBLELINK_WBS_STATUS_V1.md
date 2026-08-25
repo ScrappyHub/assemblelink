@@ -1,5 +1,7 @@
 # AssembleLink — WBS / Status v1
 
+> Historical record: this document describes a recovered removable-media experiment and is not the current AssembleLink product plan or release status. Current workstation-orchestration scope is defined by `docs/canonical/ECOSYSTEM_INTEGRATION.md`; current delivery work is tracked in `docs/WBS.md` and `release/GITHUB_RELEASE_CHECKLIST.md`.
+
 ## Project identity
 
 AssembleLink is a standalone Atlas Systems instrument.

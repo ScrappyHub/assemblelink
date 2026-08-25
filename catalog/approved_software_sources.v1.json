@@ -1,7 +1,7 @@
 {
   "schema": "assemblelink.approved_software_sources.v1",
   "policy": {
-    "free_tools_can_generate_install_command": true,
+    "automatic_install_requires_fixed_arguments": true,
     "licensed_tools_require_manual_review": true,
     "admin_installs_require_user_confirmation": true,
     "official_sources_required": true

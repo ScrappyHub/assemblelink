@@ -1,5 +1,11 @@
 # AssembleLink Architecture
 
+## Trusted desktop runtime
+
+The production executable embeds an explicit allowlist of catalogs and PowerShell engine files. Startup writes only those reviewed files to per-user application data. Repository-wide script or manifest trees are never packaged or copied. Desktop commands invoke fixed script paths, and installation scripts construct Winget argument arrays from approved package identities rather than executing catalog or manifest command text.
+
+Repository analysis reads bounded, supported top-level project manifests without executing project content. It emits `assemblelink.repository_requirements.v1`, maps detected toolchains to approved catalog IDs, and seals the result with a receipt and SHA-256 sidecar.
+
 ## Layers
 
 Installed UI -> narrow Tauri IPC commands -> trusted embedded engines/catalog -> per-user state and hashed receipts.

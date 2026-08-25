@@ -32,7 +32,7 @@ foreach($i in $items){
     winget_id=$i.winget_id
     admin_required=[bool]$i.admin_required
     install_mode=$(if($canAuto){"winget"}else{"manual_review"})
-    install_command=$(if($canAuto){"winget install --id "+$i.winget_id+" --exact"}else{""})
+    package_identity=$(if($canAuto){[string]$i.winget_id}else{""})
     status=$(if($canAuto){"ready_for_user_approval"}else{"manual_review_required"})
   }
 }

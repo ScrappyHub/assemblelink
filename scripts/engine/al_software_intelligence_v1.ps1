@@ -45,12 +45,17 @@ function WingetProbe([string]$id,[string]$cacheDir){
       $cmd=Get-Command winget.exe -ErrorAction SilentlyContinue
       if(-not$cmd){foreach($entry in @($catalog.items|Where-Object winget_id)){$script:WingetSnapshot[[string]$entry.winget_id]=[ordered]@{status='package_manager_unavailable';installed_version='';available_version='';freshness='unknown'}}}
       else{
-        $out=&$cmd.Source list --source winget --include-unknown --accept-source-agreements --disable-interactivity 2>&1;$exit=$LASTEXITCODE;$text=@($out)-join"`n";$cacheItems=@()
-        foreach($entry in @($catalog.items|Where-Object winget_id)){$packageId=[string]$entry.winget_id;$probe=[ordered]@{status='not_installed';installed_version='';available_version='';freshness='live'}
-          if($exit-ne0){$probe.status='provider_unavailable';$probe.freshness='unknown'}else{$line=@($text-split"`r?`n"|Where-Object{$_-match("(^|\s)"+[regex]::Escape($packageId)+"(\s|$)")}|Select-Object -Last 1);if($line.Count){$cols=@($line[0].Trim()-split'\s{2,}');$idx=[Array]::IndexOf($cols,$packageId);if($idx-lt0-or$idx+1-ge$cols.Count){$probe.status='malformed_response'}else{$probe.status='ok';$probe.installed_version=[string]$cols[$idx+1];$probe.available_version=$probe.installed_version;if($idx+2-lt$cols.Count-and$cols[$idx+2]-notin@('winget','msstore')){$probe.available_version=[string]$cols[$idx+2]}}}}
+        $exportPath=Join-Path $env:TEMP ('assemblelink-winget-export-'+[guid]::NewGuid().ToString('n')+'.json');$installedById=@{};$exportExit=1
+        try{
+          & $cmd.Source export --output $exportPath --include-versions --accept-source-agreements --disable-interactivity 2>&1|Out-Null;$exportExit=$LASTEXITCODE
+          if(Test-Path -LiteralPath $exportPath){$export=Get-Content $exportPath -Raw|ConvertFrom-Json;foreach($source in @($export.Sources)){foreach($package in @($source.Packages)){$installedById[[string]$package.PackageIdentifier]=[string]$package.Version}}}
+        }catch{$exportExit=1}finally{Remove-Item $exportPath -Force -ErrorAction SilentlyContinue}
+        $out=&$cmd.Source list --upgrade-available --source winget --include-unknown --accept-source-agreements --disable-interactivity 2>&1;$upgradeExit=$LASTEXITCODE;$text=@($out)-join"`n";$cacheItems=@()
+        foreach($entry in @($catalog.items|Where-Object winget_id)){$packageId=[string]$entry.winget_id;$installed=$(if($installedById.ContainsKey($packageId)){[string]$installedById[$packageId]}else{''});$probe=[ordered]@{status=$(if($installed){'ok'}else{'not_installed'});installed_version=$installed;available_version=$installed;freshness='live'}
+          if($exportExit-ne0-or$upgradeExit-ne0){$probe.status='provider_unavailable';$probe.freshness='unknown'}elseif($installed){$line=@($text-split"`r?`n"|Where-Object{$_-match("(^|\s)"+[regex]::Escape($packageId)+"(\s|$)")}|Select-Object -Last 1);if($line.Count){$cols=@($line[0].Trim()-split'\s{2,}');$idx=[Array]::IndexOf($cols,$packageId);if($idx-lt0-or$idx+2-ge$cols.Count){$probe.status='malformed_response'}else{$probe.available_version=[string]$cols[$idx+2]}}}
           $script:WingetSnapshot[$packageId]=$probe;$cacheItems+=[ordered]@{id=$packageId;status=$probe.status;installed_version=$probe.installed_version;available_version=$probe.available_version}
         }
-        if($exit-eq0){WriteUtf8 $cache (([ordered]@{checked_utc=(Get-Date).ToUniversalTime().ToString('o');items=$cacheItems}|ConvertTo-Json -Depth 8))}
+        if($exportExit-eq0-and$upgradeExit-eq0){WriteUtf8 $cache (([ordered]@{checked_utc=(Get-Date).ToUniversalTime().ToString('o');items=$cacheItems}|ConvertTo-Json -Depth 8))}
       }
     }
   }

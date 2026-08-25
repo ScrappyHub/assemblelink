@@ -11,14 +11,19 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: assemblelink-signed-release
+  cancel-in-progress: false
+
 jobs:
   windows-release-draft:
+    environment: release-signing
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -39,9 +44,25 @@ jobs:
         working-directory: ui
         run: npm test
 
+      - name: Audit UI dependencies
+        working-directory: ui
+        run: npm audit --audit-level=high
+
       - name: Test native desktop boundary
         working-directory: ui/src-tauri
         run: cargo test --locked
+
+      - name: Enforce native formatting and lint policy
+        working-directory: ui/src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Audit Rust dependency advisories
+        working-directory: ui/src-tauri
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
 
       - name: Test PowerShell engine
         shell: pwsh
@@ -53,6 +74,18 @@ jobs:
             $global:LASTEXITCODE = 0
           }
           exit 0
+
+      - name: Validate manifests and source policy
+        shell: pwsh
+        run: |
+          & scripts/commands/al_validate_manifests_v1.ps1 -RepoRoot $env:GITHUB_WORKSPACE
+          Get-ChildItem scripts/audit -Filter '*.ps1' -File |
+            Where-Object { $_.Name -notin @('al_capability_status_audit_v1.ps1','al_mission_console_audit_v1.ps1','al_runtime_smoke_v1.ps1','al_workstation_proof_v1.ps1') } |
+            ForEach-Object { & $_.FullName -RepoRoot $env:GITHUB_WORKSPACE; if (-not $?) { throw "AUDIT_FAILED: $($_.Name)" } }
+
+      - name: Verify exact Winget catalog identities
+        shell: pwsh
+        run: ./scripts/audit/al_catalog_verification_v1.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Live
 
       - name: Import Windows signing certificate
         id: certificate

@@ -3,6 +3,18 @@
   "estimation_method": "conservative_category_estimate_with_reviewed_overrides",
   "minimum_allocation_mib": 5120,
   "maximum_allocation_mib": 2097152,
+  "machine_profiles": {
+    "desktop": {
+      "default_allocation_mib": 102400,
+      "description": "Optimized for expandable storage, sustained workloads, containers, engines, and local AI.",
+      "caution_categories": []
+    },
+    "laptop": {
+      "default_allocation_mib": 51200,
+      "description": "Optimized for portability, battery life, thermal limits, and constrained storage.",
+      "caution_categories": ["gpu-compute", "local-ai", "game-engine", "virtualization", "containers", "mobile-development", "ide"]
+    }
+  },
   "category_estimates_mib": {
     "3d-content": 4096,
     "api-development": 1024,

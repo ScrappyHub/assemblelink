@@ -16,7 +16,7 @@ function PlanDigest($toolkitIds,$machineProfile,$items){
   $lines += ('machine_type='+[string]$machineProfile.machine_type)
   $lines += ('max_allocation_mib='+[string][int64]$machineProfile.max_allocation_mib)
   foreach($x in @($items|Sort-Object id)){
-    $lines += ('item='+(@([string]$x.id,[string]$x.name,[string]$x.source,[string]$x.winget_id,[string]$x.license,[string][bool]$x.admin_required,[string][bool]$x.reboot_required,(@($x.dependencies|Sort-Object)-join ','),[string]$x.mode,[string]$x.status,[string][int64]$x.estimated_installed_mib,$(if($x.PSObject.Properties.Name-contains'installed_version'){[string]$x.installed_version}else{''}),$(if($x.PSObject.Properties.Name-contains'available_version'){[string]$x.available_version}else{''}))-join '|'))
+    $lines += ('item='+(@([string]$x.id,[string]$x.name,[string]$x.source,[string]$x.winget_id,[string]$x.license,[string][bool]$x.admin_required,[string][bool]$x.reboot_required,(@($x.dependencies|Sort-Object)-join ','),[string]$x.mode,[string]$x.status,[string][int64]$x.estimated_installed_mib,[string]$x.profile_advisory,$(if($x.PSObject.Properties.Name-contains'installed_version'){[string]$x.installed_version}else{''}),$(if($x.PSObject.Properties.Name-contains'available_version'){[string]$x.available_version}else{''}))-join '|'))
   }
   $bytes=(New-Object Text.UTF8Encoding($false)).GetBytes((@($lines)-join "`n")+"`n")
   $sha=[Security.Cryptography.SHA256]::Create();try{return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
@@ -36,6 +36,8 @@ $minimumAllocationMib=[int64]$allocationPolicy.minimum_allocation_mib
 $maximumAllocationMib=[int64]$allocationPolicy.maximum_allocation_mib
 if($maxAllocationMib -lt $minimumAllocationMib -or $maxAllocationMib -gt $maximumAllocationMib){throw 'MAX_ALLOCATION_REJECTED'}
 $machineProfile=[ordered]@{machine_type=$machineType;max_allocation_mib=$maxAllocationMib}
+$profilePolicy=$allocationPolicy.machine_profiles.$machineType
+if($null-eq$profilePolicy){throw'MACHINE_PROFILE_POLICY_MISSING'}
 
 $catalogMap=@{}; foreach($item in @($catalog.items)){ $catalogMap[[string]$item.id]=$item }
 $toolkitMap=@{}; foreach($kit in @($toolkits.toolkits)){ $toolkitMap[[string]$kit.id]=$kit }
@@ -88,6 +90,7 @@ foreach($id in $orderedIds){
     dependencies=$(if($x.PSObject.Properties.Name -contains 'dependencies'){@($x.dependencies|ForEach-Object{[string]$_}|Sort-Object -Unique)}else{@()})
     mode=$(if($automatic){'winget'}else{'manual_review'}); status=$(if($automatic){'ready_for_user_approval'}else{'manual_review_required'})
     estimated_installed_mib=$estimatedMib
+    profile_advisory=$(if(@($profilePolicy.caution_categories)-contains[string]$x.category){'review_laptop_resource_impact'}else{'compatible'})
   }
 }
 $estimatedTotalMib=[int64]0;foreach($plannedItem in $items){$estimatedTotalMib += [int64]$plannedItem.estimated_installed_mib}
@@ -100,6 +103,7 @@ $plan=[ordered]@{
   item_count=$items.Count
   requires_user_approval=$true; automatic_count=@($items|Where-Object mode -eq 'winget').Count
   manual_count=@($normalizedItems|Where-Object mode -eq 'manual_review').Count; items=$normalizedItems
+  profile_guidance=[ordered]@{description=[string]$profilePolicy.description;caution_count=@($normalizedItems|Where-Object profile_advisory -ne 'compatible').Count;caution_categories=@($profilePolicy.caution_categories)}
 }
 $state=Join-Path $RepoRoot 'state'; $out=Join-Path $state "setup_plan.$planId.json"; $latest=Join-Path $state 'setup_plan.latest.json'
 $json=$plan|ConvertTo-Json -Depth 20; WriteUtf8 $out $json; WriteUtf8 $latest $json

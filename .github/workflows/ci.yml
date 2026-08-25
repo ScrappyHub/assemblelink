@@ -11,8 +11,8 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -22,10 +22,22 @@ jobs:
         working-directory: ui
       - run: npm test
         working-directory: ui
+      - run: npm audit --audit-level=high
+        working-directory: ui
       - run: npm run build
         working-directory: ui
       - run: cargo test --locked
         working-directory: ui/src-tauri
+      - run: cargo fmt --all -- --check
+        working-directory: ui/src-tauri
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: ui/src-tauri
+      - name: Audit Rust dependency advisories
+        shell: pwsh
+        working-directory: ui/src-tauri
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
       - name: Test deterministic engine and threat cases
         shell: pwsh
         run: |
@@ -60,7 +72,7 @@ jobs:
   catalog-live:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Verify every exact package identity against Winget
         shell: pwsh
         run: ./scripts/audit/al_catalog_verification_v1.ps1 -RepoRoot $PWD -Live

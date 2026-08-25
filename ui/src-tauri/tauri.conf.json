@@ -36,11 +36,6 @@
       "nsis": {
         "installMode": "currentUser"
       }
-    },
-    "resources": {
-      "../../scripts/": "engine/scripts/",
-      "../../catalog/": "engine/catalog/",
-      "../../manifests/": "engine/manifests/"
     }
   }
 }

@@ -49,5 +49,7 @@ $ErrorActionPreference='Continue'; & powershell.exe -NoProfile -NonInteractive -
 if($LASTEXITCODE -eq 0){throw 'TAMPERED_BLUEPRINT_ACCEPTED'}
 Remove-Item $tampered,($tampered+'.sha256') -Force -ErrorAction SilentlyContinue
 $trustedScripts=@('scripts\engine\al_setup_execute_v1.ps1','scripts\engine\al_software_intelligence_v1.ps1','scripts\engine\al_blueprint_export_v1.ps1','scripts\engine\al_blueprint_import_v1.ps1','scripts\commands\al_driver_profile_v1.ps1');foreach($trustedScript in $trustedScripts){$source=Get-Content (Join-Path $RepoRoot $trustedScript) -Raw;if($source-match'Get-FileHash'){throw "OPTIONAL_HASH_CMDLET_IN_PACKAGED_RUNTIME: $trustedScript"};if($source-notmatch'Security\.Cryptography\.SHA256'){throw "DOTNET_HASHING_NOT_WIRED: $trustedScript"}}
+$legacyCli=Get-Content (Join-Path $sourceRoot 'al.ps1') -Raw;$legacyCommand=Get-Content (Join-Path $sourceRoot 'scripts\commands\al_install_v1.ps1') -Raw
+if($legacyCli-notmatch'LEGACY_INSTALL_DISABLED'-or$legacyCommand-notmatch'LEGACY_INSTALL_DISABLED'-or$legacyCommand-match'cmd\.exe|Invoke-Expression'){throw'LEGACY_INSTALL_BYPASS_PRESENT'}
 Write-Host 'ASSEMBLELINK_SETUP_SECURITY_TESTS_OK' -ForegroundColor Green
 }finally{if(Test-Path $testRoot){$resolved=(Resolve-Path $testRoot).Path;if($resolved.StartsWith([IO.Path]::GetFullPath($env:TEMP),[StringComparison]::OrdinalIgnoreCase)){Remove-Item -LiteralPath $resolved -Recurse -Force}}}
