@@ -1,6 +1,6 @@
 import "./style.css";
 import {pandaSvg} from "./panda.js";
-import {roomSvg} from "./scenes.js";
+import {roomSvg, readerSvg, grassSvg} from "./scenes.js";
 
 let workstationHealth = null;
 
@@ -339,6 +339,17 @@ let uninstallMessage = "";
 let selfUninstallAck = false;
 let selfUninstalling = false;
 
+const PREF_KEY = "assemblelink.ui.v1";
+function readPrefs(){ try{ return JSON.parse(localStorage.getItem(PREF_KEY)||"{}")||{}; }catch(_e){ return {}; } }
+function writePref(key,value){ try{ const p=readPrefs(); p[key]=value; localStorage.setItem(PREF_KEY,JSON.stringify(p)); }catch(_e){ /* storage unavailable: the choice just will not persist */ } }
+let welcomeOpen = !readPrefs().welcomeSeen;
+let welcomeStep = 0;
+let welcomeLeaving = false;
+let invStep = 0;
+let invTourOn = !readPrefs().inventoryTourSeen;
+let invPull = false;
+let invLimit = 80;
+
 const reducedMotion = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
 const MENUS = [
@@ -363,6 +374,7 @@ function allocationOk(){
   return Number.isInteger(maxAllocationGb)&&maxAllocationGb>=5&&maxAllocationGb<=2048&&e.complete&&e.mib<=maxAllocationGb*1024;
 }
 function go(next){
+  if(welcomeOpen&&next!=="home"){welcomeOpen=false;welcomeLeaving=false;writePref("welcomeSeen",true);}
   if(next==="wizard"&&!setupRunning&&setupResult){resetRun();wizardStep=1;}
   if(next==="wizard"&&!setupPlan&&!setupRunning){setupMode="setup";}
   view=next; openMenu="";
@@ -430,6 +442,10 @@ function runCountUps(){
 }
 
 // ---------- shell ----------
+function patchMenu(){
+  const bar=document.querySelector(".menubar"); if(!bar){render();return;}
+  bar.outerHTML=renderMenuBar();
+}
 function renderMenuBar(){
   const s=softwareIntelligence?.summary;
   const pill=scanning||(!softwareIntelligence&&!softwareScanError)
@@ -437,13 +453,16 @@ function renderMenuBar(){
     :softwareScanError?`<button class="pill warn" id="retryScan"><i></i>Scan needs attention · retry</button>`
     :`<span class="pill ready"><i></i>${Number(s?.detected)||0} detected · ${Number(s?.catalog_matched)||0} managed</span>`;
   const active=VIEW_MENU[view];
-  return `<header class="menubar" role="menubar">
+  const tabs=[["home","Overview"],["wizard","Set up this computer"],["toolkits","Job toolkits"],["catalog","Software & CLI catalog"],["inventory","Installed software"],["readiness","Job readiness"]];
+  return `<header class="menubar"><div class="menuRow" role="menubar">
     <button class="brandBtn" data-go="home" aria-label="AssembleLink home"><span class="brandMark">${pandaSvg("idle","AssembleLink")}</span><b>AssembleLink</b></button>
     <nav class="menus">${MENUS.map(m=>`<div class="menu ${openMenu===m.id?"open":""} ${active===m.id?"current":""}">
       <button class="menuBtn" data-menu="${m.id}" aria-haspopup="menu" aria-expanded="${openMenu===m.id}">${m.label}</button>
       ${openMenu===m.id?`<div class="menuDrop" role="menu">${m.items.map(it=>it[0]==="sep"?`<hr>`:`<button role="menuitem" class="${it[0]==="go"&&view===it[1]?"on":""}" ${it[0]==="go"?`data-go="${it[1]}"`:`data-act="${it[1]}"`}>${escapeHtml(it[2])}</button>`).join("")}</div>`:""}
     </div>`).join("")}</nav>
     <div class="menuSpacer"></div>${pill}
+  </div>
+  <nav class="tabStrip" aria-label="Pages">${tabs.map(([id,label])=>`<button class="pageTab ${view===id?"on":""}" data-go="${id}" ${view===id?'aria-current="page"':""}>${escapeHtml(label)}</button>`).join("")}</nav>
   </header>`;
 }
 function pageHead(title,sub="",right=""){
@@ -462,24 +481,64 @@ function renderSetupRecovery(){
   const total=Number(setupRecovery.progress?.total)||0;
   return `<aside class="recoveryNotice"><div><b>Interrupted setup found</b><span>${completed} of ${total} tools were recorded before the run stopped. Completed automatic tools will be independently checked before they are skipped.</span></div><button id="reviewRecovery" class="btn secondary">Review and resume</button></aside>`;
 }
+function specs(){
+  const sp=systemProfile; if(!sp){return null;}
+  const cpu=sp.cpu||{},mem=sp.memory||{},st=sp.storage||{},os=sp.os||{},m=sp.machine||{};
+  const gpu=(Array.isArray(sp.gpu)?sp.gpu:[])[0]||{};
+  return {name:m.name||"This computer",cpu:cpu.name||"Unknown processor",cores:cpu.cores,threads:cpu.logical_processors,ram:mem.total_gb,gpu:gpu.name||"Unknown graphics",vram:gpu.vram_gb,free:st.free_gb,total:st.total_gb,os:os.caption||"Windows",arch:os.architecture||""};
+}
+function welcomeLines(){
+  const returning=(Number(receiptIndex?.summary?.total)||0)>0;
+  const sm=softwareIntelligence?.summary;
+  const updates=Number(sm?.updates_available)||0;
+  return [
+    {pose:"happy",text:returning?"Welcome back! I kept an eye on things while you were away.":"Welcome to AssembleLink! I am your setup panda. I help you set up, check, and tidy this computer."},
+    sm?{pose:"think",text:`I found ${Number(sm.detected)||0} things installed. ${Number(sm.catalog_matched)||0} are tools I can manage${updates?`, and ${updates} ${updates===1?"has":"have"} an update ready`:""}.`}:{pose:"scan",text:"I am still looking through your software…"},
+    {pose:"happy",final:true,returning,text:returning?"Want to add more tools, or just look around?":"Ready? I will walk you through it one step at a time. Nothing installs until you say so."}
+  ];
+}
+function dismissWelcome(after){
+  if(!welcomeOpen||welcomeLeaving){return;}
+  writePref("welcomeSeen",true);
+  welcomeLeaving=true;
+  const dock=document.querySelector(".pandaDock");
+  dock?.classList.add("leaving");
+  window.setTimeout(()=>{welcomeOpen=false;welcomeLeaving=false;document.querySelector(".pandaDock")?.remove();if(after){after();}},reducedMotion()?0:420);
+}
+function renderWelcome(){
+  const lines=welcomeLines(); const i=Math.min(welcomeStep,lines.length-1); const l=lines[i];
+  return `<aside class="pandaDock ${welcomeLeaving?"leaving":""}" role="complementary" aria-label="Panda guide" aria-live="polite">
+    <div class="dockStage">${grassSvg(false)}<button class="dockPanda" id="welcomePanda" aria-label="Next line">${pandaSvg(l.pose)}</button>${grassSvg(true)}</div>
+    <div class="vnBox dockBox"><span class="vnName">Panda</span><button class="vnClose" id="welcomeSkip" aria-label="Dismiss the panda">✕</button>
+      <p class="vnText">${escapeHtml(l.text)}</p>
+      <div class="vnFoot"><span class="vnDots" aria-hidden="true">${lines.map((_,k)=>`<i class="${k===i?"on":""}"></i>`).join("")}</span>
+        <span class="vnBtns">${l.final?`<button id="welcomeStart" class="btn primary small">${l.returning?"Set up more tools":"Get started"}</button><button id="welcomeLook" class="btn secondary small">Got it</button>`:`<button id="welcomeNext" class="btn primary small">Next ▸</button>`}</span></div>
+    </div>
+  </aside>`;
+}
+function patchDock(){
+  const dock=document.querySelector(".pandaDock"); if(!dock){return;}
+  dock.outerHTML=renderWelcome();
+}
 function renderHome(){
   const s=softwareIntelligence?.summary||{};
-  const receipts=Number(receiptIndex?.summary?.total)||0;
-  const returning=receipts>0;
-  const mood=pandaMood();
+  const sp=specs();
   const updates=Number(s.updates_available)||0;
-  const facts=softwareIntelligence?`<p class="splashFacts"><span><b data-countup="${Number(s.detected)||0}" data-count-key="detected">0</b> things found</span><span><b data-countup="${Number(s.catalog_matched)||0}" data-count-key="matched">0</b> tools I manage</span>${updates?`<span><b data-countup="${updates}" data-count-key="updates">0</b> ${updates===1?"update":"updates"} ready</span>`:""}</p>`:"";
+  const tile=(label,value,sub)=>`<div class="specTile"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(sub||"")}</small></div>`;
+  const see=(filter,value,label)=>`<button class="seeTile" data-inv-open="${filter}"><b data-countup="${Number(value)||0}" data-count-key="see-${filter}">0</b><span>${escapeHtml(label)}</span></button>`;
   const scanFail=softwareScanError?`<aside class="recoveryNotice warn"><div><b>The software scan could not finish</b><span>Nothing was changed. You can still set up tools.</span></div><button id="retryScan2" class="btn secondary">Scan again</button></aside>`:"";
-  return `<section class="splash">
-    <div class="splashPanda" data-pose="${mood.pose}">${pandaSvg(mood.pose)}</div>
-    <h1>${returning?"Welcome back":"Welcome to AssembleLink"}</h1>
-    <p class="lead">${returning?"I remember this computer. Add more tools, check what is installed, or look for updates.":"I am your setup panda. Tell me the work you do and I will gather, check, and install every tool for it, one approved step at a time."}</p>
-    <div class="splashCta"><button id="getStarted" class="btn primary big">${returning?"Set up more tools":"Get started"}</button>${returning?`<button class="btn ghost big" data-go="inventory">Open my inventory</button>`:`<button class="btn ghost big" data-go="how">How it works</button>`}</div>
-    ${facts}
-    ${scanning||(!softwareIntelligence&&!softwareScanError)?`<div class="scanLine center" aria-hidden="true"><span></span></div><p class="splashHint">Looking around your computer…</p>`:""}
+  return `${pageHead("Your computer",sp?`${sp.name} · ${sp.os}${sp.arch?` · ${sp.arch}`:""}`:"Reading your hardware…",`<button id="getStarted" class="btn primary">${(Number(receiptIndex?.summary?.total)||0)>0?"Set up more tools":"Get started"}</button>`)}
+    ${scanning||(!softwareIntelligence&&!softwareScanError)?`<div class="scanLine" aria-hidden="true"><span></span></div>`:""}
     ${scanFail}${renderSetupRecovery()}
-    <p class="splashHint">Everything is shown to you first. Nothing installs without your approval.</p>
-  </section>`;
+    <section aria-label="This computer"><h2 class="sectionLabel">This computer</h2>
+      <div class="specGrid">${sp?[tile("Processor",sp.cpu,sp.cores?`${sp.cores} cores${sp.threads?` / ${sp.threads} threads`:""}`:""),tile("Memory",sp.ram?`${sp.ram} GB`:"Unknown","installed"),tile("Graphics",sp.gpu,sp.vram?`${sp.vram} GB video memory reported`:""),tile("Storage",sp.free?`${sp.free} GB free`:"Unknown",sp.total?`of ${sp.total} GB`:""),tile("System",sp.os,sp.arch)].join(""):`<p class="empty">I am still reading your hardware…</p>`}</div>
+    </section>
+    <section aria-label="What I see"><h2 class="sectionLabel">What I see</h2>
+      <div class="seeGrid">${softwareIntelligence?[see("all",s.detected,"things found"),see("managed",s.catalog_matched,"tools I manage"),see("updates",updates,updates===1?"update ready":"updates ready"),see("unknown",s.unknown,"unknown versions")].join(""):`<p class="empty">Looking around your computer…</p>`}</div>
+    </section>
+    <section aria-label="What next"><h2 class="sectionLabel">What next</h2>
+      <div class="nextRow"><button class="nextCard" data-go="toolkits"><b>Pick a job toolkit</b><span>Tools for the work you do.</span></button><button class="nextCard" data-go="readiness"><b>Job readiness</b><span>See what each toolkit is missing.</span></button><button class="nextCard" data-go="inventory"><b>Visit the inventory room</b><span>The panda reads you your software.</span></button></div>
+    </section>`;
 }
 
 // ---------- Setup wizard ----------
@@ -633,6 +692,34 @@ function invRows(){
     return !q||`${a.name||""} ${a.publisher||""} ${a.version||""}`.toLowerCase().includes(q);
   });
 }
+function invSteps(){
+  const sm=softwareIntelligence?.summary||{};
+  if(!softwareIntelligence){return [{key:"wait",filter:"all",topic:"SCANNING",count:"…",text:"Give me a moment. I am still going through your software."}];}
+  const upd=softwareInventory.filter(a=>a.update_status==="update_available");
+  const names=upd.slice(0,4).map(a=>a.name).join(", ");
+  const detected=Number(sm.detected)||softwareInventory.length;
+  const updates=Number(sm.updates_available)||upd.length;
+  const unknown=Number(sm.unknown)||0;
+  const apps=Number(sm.unmatched_unique_applications??sm.unmatched_application_candidates??sm.unmatched)||0;
+  const managed=Number(sm.catalog_matched)||softwareInventory.filter(a=>a.catalog_id).length;
+  return [
+    {key:"all",filter:"all",topic:"INVENTORY",count:String(detected),text:`Welcome to my office. I read through all ${detected} things on your computer. Let me tell you what matters.`},
+    {key:"updates",filter:"updates",topic:"UPDATES",count:String(updates),text:updates?`${updates} ${updates===1?"tool has":"tools have"} an update ready${names?`: ${names}${upd.length>4?" and more":""}`:""}. See results below.`:"Nothing I manage needs an update right now."},
+    {key:"unknown",filter:"unknown",topic:"UNKNOWN",count:String(unknown),text:`${unknown} ${unknown===1?"tool has":"tools have"} a version I could not confirm. Unknown never means current. See results below.`},
+    {key:"apps",filter:"apps",topic:"UNREVIEWED",count:String(apps),text:`${apps} apps are not in my approved catalog. I will not touch them unless you ask. See results below.`},
+    {key:"managed",filter:"managed",topic:"MANAGED",count:String(managed),text:`${managed} are tools I can install, update, and remove for you. See results below.`},
+    {key:"end",filter:"all",topic:"ALL DONE",count:"✓",text:"That is everything I read. Search the scroll below yourself, or ask me again anytime."}
+  ];
+}
+function applyInvStep(index){
+  const steps=invSteps();
+  invStep=Math.max(0,Math.min(index,steps.length-1));
+  invFilter=steps[invStep].filter; invSelected=null; invPull=true; invLimit=80;
+}
+function finishInvTour(){
+  invTourOn=false; writePref("inventoryTourSeen",true);
+  applyInvStep(invSteps().length-1);
+}
 function renderInventoryDetail(){
   const app=invSelected===null?null:softwareInventory[invSelected];
   if(!app){return "";}
@@ -651,14 +738,23 @@ function renderInventory(){
   const comps=Number(s.unmatched_components)||0;
   const updates=Number(s.updates_available)||0;
   const unknown=Number(s.unknown)||0;
-  const mood=pandaMood();
+  const steps=invSteps();
+  const step=steps[Math.min(invStep,steps.length-1)];
+  const pull=invPull; invPull=false;
+  const shown=Math.min(rows.length,invLimit);
   const filters=[["all",`All ${softwareInventory.length}`],["managed",`Managed ${managed}`],["updates",`Needs update ${updates}`],["apps",`Apps to review ${apps}`],["components",`Components ${comps}`],["unknown",`Unknown version ${unknown}`]];
+  const canTour=steps.length>1;
+  const foot=canTour?(invTourOn
+    ?`<span class="vnDots" aria-hidden="true">${steps.map((_,k)=>`<i class="${k===invStep?"on":""}"></i>`).join("")}</span><span class="vnBtns"><button id="invSkip" class="btn ghost small">Skip tour</button>${invStep>0?`<button id="invBack" class="btn secondary small">◂ Back</button>`:""}<button id="invNext" class="btn primary small">${invStep>=steps.length-1?"Done":"Next ▸"}</button></span>`
+    :`<span class="askRow"><button class="chipBtn" data-panda-ask="updates">What needs updating?</button><button class="chipBtn" data-panda-ask="managed">What can you manage?</button><button class="chipBtn" data-panda-ask="apps">Apps I have not reviewed</button><button class="chipBtn" data-panda-ask="unknown">Unknown versions</button><button id="invReplay" class="chipBtn">Replay the tour</button></span>`):"";
   return `${pageHead("Installed software","Everything I found on this computer, kept in my inventory room.",`<button id="refreshSoftware" class="btn secondary">Rescan</button>`)}
   ${statusLine()}
-  <section class="room">${roomSvg()}
-    <div class="roomPanda" data-pose="${mood.pose}">${pandaSvg(mood.pose)}</div>
-    <div class="roomSpeech"><b>${escapeHtml(mood.title)}</b><p>${escapeHtml(mood.text)}</p>
-      <div class="askRow"><button class="chipBtn" data-panda-ask="updates">What needs updating?</button><button class="chipBtn" data-panda-ask="managed">What can you manage?</button><button class="chipBtn" data-panda-ask="apps">Apps I have not reviewed</button><button class="chipBtn" data-panda-ask="unknown">Unknown versions</button></div>
+  <section class="room office" data-step="${escapeHtml(step.key)}" aria-label="The panda's office">${roomSvg()}
+    <div class="officeFigure">${readerSvg(step.topic,step.count,pull)}</div>
+    <div class="vnBox invBox" aria-live="polite"><span class="vnName">Panda</span>
+      <p class="vnText ${pull?"fresh":""}">${escapeHtml(step.text)}</p>
+      ${step.filter!=="all"?`<p class="seeBelow">↓ results are in the scroll below</p>`:""}
+      <div class="vnFoot">${foot}</div>
     </div>
   </section>
   <section class="scrollWrap" aria-label="Inventory scroll">
@@ -666,9 +762,9 @@ function renderInventory(){
     <div class="scrollPaper">
       <div class="scrollTools"><input id="softwareSearch" type="search" placeholder="Search software, publisher, version…" value="${escapeHtml(invSearch)}" aria-label="Search installed software"><select id="invCategory" aria-label="Category">${cats.map(c=>`<option ${invCategory===c?"selected":""} value="${escapeHtml(c)}">${c==="all"?"All categories":escapeHtml(c)}</option>`).join("")}</select></div>
       <div class="filterRow tight">${filters.map(([id,label])=>`<button class="chipBtn ${invFilter===id?"active":""}" data-inv-filter="${id}">${escapeHtml(label)}</button>`).join("")}</div>
-      <p class="count">Showing ${Math.min(rows.length,250)} of ${rows.length} matching · ${softwareInventory.length} detected</p>
+      <p class="count">Showing ${shown} of ${rows.length} matching · ${softwareInventory.length} detected</p>
       ${renderInventoryDetail()}
-      <div class="scrollBody">${rows.slice(0,250).map(({a,i,cat})=>`<button class="invRow ${invSelected===i?"on":""}" data-inv-index="${i}"><span class="invName"><b>${escapeHtml(a.name||"")}</b><small>${escapeHtml(a.publisher||"")}</small></span><span class="tag">${escapeHtml(cat)}</span><span class="invVer" title="${escapeHtml(a.version||"")}">${escapeHtml(shortVersion(a.version))}</span><span class="invStat ${escapeHtml(a.update_status||"unmatched")}">${escapeHtml(humanStatus(a.update_status||"unmatched"))}</span></button>`).join("")||`<p class="empty">${softwareInventory.length?"Nothing matches. Try a different filter.":"Run a scan and I will fill this shelf."}</p>`}</div>
+      <div class="scrollBody">${rows.slice(0,shown).map(({a,i,cat})=>`<button class="invRow ${invSelected===i?"on":""}" data-inv-index="${i}"><span class="invName"><b>${escapeHtml(a.name||"")}</b><small>${escapeHtml(a.publisher||"")}</small></span><span class="tag">${escapeHtml(cat)}</span><span class="invVer" title="${escapeHtml(a.version||"")}">${escapeHtml(shortVersion(a.version))}</span><span class="invStat ${escapeHtml(a.update_status||"unmatched")}">${escapeHtml(humanStatus(a.update_status||"unmatched"))}</span></button>`).join("")||`<p class="empty">${softwareInventory.length?"Nothing matches. Try a different filter.":"Run a scan and I will fill this shelf."}</p>`}${rows.length>shown?`<button id="invMore" class="btn ghost small moreRows">Show ${Math.min(100,rows.length-shown)} more</button>`:""}</div>
     </div>
     <div class="rod" aria-hidden="true"></div>
   </section>
@@ -818,7 +914,7 @@ function render(){
   const el=document.getElementById("app");
   if(!el){document.body.innerHTML="<pre>APP_ROOT_MISSING</pre>";return;}
   const keepScroll=el.querySelector(".scrollBody")?.scrollTop||0;
-  el.innerHTML=`<div class="appShell">${renderMenuBar()}<main class="page view-${escapeHtml(view)}" id="main">${errorText?`<section class="card"><h2>Something went wrong</h2><pre class="techPre">${escapeHtml(errorText)}</pre></section>`:renderPanel()}</main></div>`;
+  el.innerHTML=`<div class="appShell">${renderMenuBar()}<main class="page view-${escapeHtml(view)}" id="main">${errorText?`<section class="card"><h2>Something went wrong</h2><pre class="techPre">${escapeHtml(errorText)}</pre></section>`:renderPanel()}</main>${welcomeOpen&&view==="home"?renderWelcome():""}</div>`;
   const viewKey=`${view}|${wizardStep}`;
   if(viewKey!==lastViewKey){el.querySelector(".page")?.classList.add("viewEnter");}
   lastViewKey=viewKey;
@@ -954,6 +1050,16 @@ const actions={
   },
   refreshReceipts:async()=>{receiptLoadError="Refreshing local evidence…";render();await loadReceipts();render();},
   refreshDrivers:async()=>{driverLoadError="Scanning local hardware and installed driver versions…";render();await refreshDriverProfile();await loadReceipts();render();},
+  welcomePanda:()=>actions.welcomeNext(), 
+  welcomeNext:()=>{welcomeStep=Math.min(welcomeStep+1,welcomeLines().length-1);patchDock();},
+  welcomeSkip:()=>dismissWelcome(),
+  welcomeLook:()=>dismissWelcome(),
+  welcomeStart:()=>dismissWelcome(()=>startWizard()),
+  invNext:()=>{if(invStep>=invSteps().length-1){finishInvTour();}else{applyInvStep(invStep+1);}render();},
+  invBack:()=>{applyInvStep(invStep-1);render();},
+  invSkip:()=>{finishInvTour();render();},
+  invReplay:()=>{invTourOn=true;applyInvStep(0);render();},
+  invMore:()=>{invLimit+=100;render();},
   closeInvDetail:()=>{invSelected=null;render();},
   toggleTechnical:()=>{showTechnical=!showTechnical;render();},
   uninstallSelf:()=>uninstallSelfNow()
@@ -962,26 +1068,28 @@ const actions={
 function onClick(e){
   const t=e.target; if(!(t instanceof Element)){return;}
   let el;
-  if((el=t.closest("[data-menu]"))){const id=el.getAttribute("data-menu");openMenu=openMenu===id?"":id;render();return;}
+  if((el=t.closest("[data-menu]"))){const id=el.getAttribute("data-menu");openMenu=openMenu===id?"":id;patchMenu();return;}
   if((el=t.closest("[data-act]"))){openMenu="";const a=el.getAttribute("data-act");if(a==="rescan"){rescanComputer();}else if(a==="rehw"){view="drivers";actions.refreshDrivers();}return;}
   if((el=t.closest("[data-kit-start]"))){startWizard({toolkit:el.getAttribute("data-kit-start"),step:2});return;}
   if((el=t.closest("[data-go]"))){go(el.getAttribute("data-go"));return;}
   if((el=t.closest("[data-kit-family]"))){kitFamily=el.getAttribute("data-kit-family");render();return;}
-  if((el=t.closest("[data-inv-filter]"))){invFilter=el.getAttribute("data-inv-filter");invSelected=null;pandaNote="";render();return;}
+  if((el=t.closest("[data-inv-filter]"))){invFilter=el.getAttribute("data-inv-filter");invSelected=null;pandaNote="";invLimit=80;render();return;}
   if((el=t.closest("[data-inv-index]"))){const i=Number(el.getAttribute("data-inv-index"));invSelected=invSelected===i?null:i;render();return;}
   if((el=t.closest("[data-panda-ask]"))){
-    const ask=el.getAttribute("data-panda-ask");const s=softwareIntelligence?.summary||{};
-    invFilter=ask;invSelected=null;
-    const n=ask==="updates"?Number(s.updates_available)||0:ask==="managed"?softwareInventory.filter(a=>a.catalog_id).length:ask==="apps"?Number(s.unmatched_unique_applications??s.unmatched)||0:Number(s.unknown)||0;
-    pandaNote={updates:`${n} ${n===1?"tool has":"tools have"} an update ready. Tap one on the scroll to review it.`,managed:`${n} tools are ones I can install, update, and remove for you.`,apps:`${n} apps are on this computer but not in my approved catalog. I will not touch them unless you ask.`,unknown:`${n} tools have a version I could not confirm. Unknown never means current.`}[ask];
-    render();return;
+    const idx=invSteps().findIndex(x=>x.key===el.getAttribute("data-panda-ask"));
+    applyInvStep(idx<0?0:idx);render();return;
+  }
+  if((el=t.closest("[data-inv-open]"))){
+    const key=el.getAttribute("data-inv-open");
+    invTourOn=false;invFilter=key==="all"?"all":key;invSelected=null;invStep=Math.max(0,invSteps().findIndex(x=>x.key===(key==="all"?"all":key)));
+    go("inventory");return;
   }
   if((el=t.closest("[data-find-catalog]"))){catalogSearch=el.getAttribute("data-find-catalog")||"";catalogCategory="all";go("catalog");return;}
   if((el=t.closest("[data-uninstall-search]"))){uninstallSearch=el.getAttribute("data-uninstall-search")||"";go("uninstall");return;}
   if((el=t.closest("[data-uninstall]"))){uninstallProgram(el.getAttribute("data-uninstall"));return;}
   if((el=t.closest("[data-remove-software]"))){selectedSoftwareIds.delete(el.getAttribute("data-remove-software"));render();return;}
   if((el=t.closest("button[id]"))&&actions[el.id]){actions[el.id](el);return;}
-  if(openMenu&&!t.closest(".menu")){openMenu="";render();}
+  if(openMenu&&!t.closest(".menu")){openMenu="";patchMenu();}
 }
 
 function onChange(e){
@@ -1015,7 +1123,7 @@ async function boot(){
   app?.addEventListener("click",onClick);
   app?.addEventListener("change",onChange);
   app?.addEventListener("input",onInput);
-  document.addEventListener("keydown",e=>{if(e.key==="Escape"&&openMenu){openMenu="";render();}});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(welcomeOpen){dismissWelcome();}else if(openMenu){openMenu="";patchMenu();}}});
   try{
     render();
     await loadSetupData();

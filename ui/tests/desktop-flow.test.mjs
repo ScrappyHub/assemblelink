@@ -264,3 +264,31 @@ test("app icon set is wired for the window, taskbar and installer", async () => 
   const conf=JSON.parse(await readFile(new URL("../src-tauri/tauri.conf.json",import.meta.url),"utf8"));
   for(const icon of ["icons/icon.ico","icons/icon.png","icons/32x32.png","icons/128x128.png"]){assert.ok(conf.bundle.icon.includes(icon),icon);}
 });
+
+test("the panda dock is dismissible and remembered, and specs live on the dashboard", () => {
+  assert.match(source, /function renderWelcome/);
+  assert.doesNotMatch(source, /specSentence|Here is what I am working with/);
+  assert.match(source, /class="pandaDock/);
+  assert.doesNotMatch(source, /welcomeVeil/);
+  assert.match(source, /writePref\("welcomeSeen",true\)/);
+  assert.match(source, /let welcomeOpen = !readPrefs\(\)\.welcomeSeen/);
+  assert.match(source, /id="welcomeSkip"/);
+  assert.match(source, /class="specGrid"/);
+});
+
+test("the inventory room is a click-through visual-novel tour with the reading panda", async () => {
+  const scenes = await readFile(new URL("../src/scenes.js", import.meta.url), "utf8");
+  assert.match(source, /function invSteps/);
+  assert.match(source, /id="invNext"/);
+  assert.match(source, /See results below/);
+  assert.match(source, /writePref\("inventoryTourSeen",true\)/);
+  assert.match(scenes, /export function readerSvg/);
+  assert.match(scenes, /class="glasses"/);
+  assert.match(scenes, /class="chair"/);
+  assert.match(scenes, /class="sprig"/);
+});
+
+test("the pages the user called out are visible tabs as well as menu items", () => {
+  assert.match(source, /class="tabStrip"/);
+  for(const label of ["Overview","Set up this computer","Job toolkits","Software & CLI catalog","Installed software","Job readiness"]){assert.match(source,new RegExp(`\\["[a-z]+","${label.replace(/[&]/g,"\\$&")}"\\]`));}
+});
