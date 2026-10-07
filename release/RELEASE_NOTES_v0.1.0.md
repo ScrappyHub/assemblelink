@@ -19,7 +19,7 @@ AssembleLink is a local-first Windows workstation setup and reconstruction dashb
 
 ## Verify the download
 
-Compare the installer SHA-256 value with `SHA256SUMS.txt`, then verify that Windows reports a valid Atlas Systems Authenticode signature and trusted timestamp. Do not install a production release that is unsigned or whose checksum differs.
+Compare the installer SHA-256 value with `SHA256SUMS.txt`, then verify that Windows reports a valid Authenticode signature (the publisher shown will be SignPath Foundation once the project is approved for its free open-source signing; until then builds are labelled UNSIGNED-DEVELOPMENT and are previews only) and trusted timestamp. Do not install a production release that is unsigned or whose checksum differs.
 
 ## Important boundaries
 

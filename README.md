@@ -26,7 +26,7 @@ New-machine planning includes a desktop/laptop profile and a user-selected maxim
 
 GitHub Releases is the intended distribution channel for the Windows x64 installer. A production asset is named `AssembleLink-<version>-windows-x64-setup.exe` and is accompanied by `SHA256SUMS.txt` and `release-manifest.v1.json`.
 
-Before running a production installer, recompute its SHA-256 checksum and confirm Windows reports a valid Atlas Systems Authenticode signature with a trusted timestamp. Assets containing `UNSIGNED-DEVELOPMENT` in the filename are test builds and must not be redistributed as production releases.
+Before running a production installer, recompute its SHA-256 checksum and confirm Windows reports a valid Authenticode signature (the publisher shown will be SignPath Foundation once the project is approved for its free open-source signing; until then builds are labelled UNSIGNED-DEVELOPMENT and are previews only) with a trusted timestamp. Assets containing `UNSIGNED-DEVELOPMENT` in the filename are test builds and must not be redistributed as production releases.
 
 ## Current direction
 
