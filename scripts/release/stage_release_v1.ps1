@@ -1,5 +1,5 @@
 param(
-  [Parameter(Mandatory=$true)][string]$RepoRoot,
+  [string]$RepoRoot=(Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
   [Parameter(Mandatory=$true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
   [Parameter(Mandatory=$true)][string]$InstallerPath,
   [string]$OutputRoot='',

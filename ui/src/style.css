@@ -408,3 +408,14 @@ details > summary { cursor:pointer; padding:6px 0; color:#c9d8ee; font-weight:60
 .kitOverlay .toolList { display:block; }
 .kitOverlay .toolList li { display:flex; border:0; border-bottom:1px solid var(--line); border-radius:0; background:none; padding:6px 2px; }
 .seeTools { padding-left:0; }
+
+/* ---- goodbye overlay ---- */
+.byeVeil { position:fixed; inset:0; z-index:100; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; padding:24px; background:rgba(8,13,26,.96); }
+.byeVeil h1 { font-size:34px; } .byeVeil p { color:var(--muted); max-width:36ch; }
+.byePanda { width:220px; height:220px; } .byePanda svg { width:100%; height:100%; overflow:visible; }
+.byePanda .panda .head { transform-box:fill-box; transform-origin:50% 60%; animation:byeSpin 4.2s ease-in-out infinite; }
+.byePanda .panda .arm.wave { transform-box:fill-box; transform-origin:50% 90%; animation:byeWave .7s ease-in-out infinite alternate; }
+@keyframes byeWave { from { transform:rotate(-14deg); } to { transform:rotate(18deg); } }
+@keyframes byeSpin { 0%,55% { transform:rotate(0); } 80%,100% { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .byePanda .panda .head, .byePanda .panda .arm.wave { animation:none; } }
+.byePanda { border-radius:50%; background:radial-gradient(circle at 50% 55%, #2b3d63 0%, #16223c 62%, transparent 63%); }
