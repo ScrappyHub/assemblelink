@@ -1235,52 +1235,42 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .pandaGuide[data-pose="scan"] .pandaSpeech b::after { content:"…"; display:inline-block; width:1.2em; text-align:left; animation: dots 1.2s steps(4) infinite; overflow:hidden; vertical-align:bottom; }
 @keyframes dots { 0% { width:0; } 100% { width:1.2em; } }
 
-/* Panda animation (shared by every pose) */
+/* Panda animation: deliberately lazy. Slow breathing, slow blinks, a plod instead of a walk. */
 .panda { display:block; }
-.panda .figure, .panda .head, .panda .torso, .panda .arm, .panda .leg, .panda .eyes, .panda .pupil, .panda .bamboo, .panda .shadow { transform-box:fill-box; transform-origin:center; }
-.panda .torso { transform-origin:50% 100%; animation: breathe 3.6s ease-in-out infinite; }
-.panda .head { transform-origin:50% 90%; animation: headIdle 6s ease-in-out infinite; }
-.panda .eyes { transform-origin:50% 50%; animation: blink 5.2s infinite; }
-.panda .arm.r { transform-origin:50% 12%; }
-.panda .arm.l { transform-origin:50% 12%; }
-@keyframes breathe { 0%,100% { transform:scaleY(1); } 50% { transform:scaleY(1.025); } }
-@keyframes headIdle { 0%,100% { transform:rotate(0); } 30% { transform:rotate(-2.5deg); } 70% { transform:rotate(2.5deg); } }
-@keyframes blink { 0%,92%,100% { transform:scaleY(1); } 95% { transform:scaleY(.08); } }
-.panda[data-pose="idle"] .arm.r { animation: wave 5s ease-in-out infinite; animation-delay:1.2s; }
-@keyframes wave { 0%,12%,100% { transform:rotate(0); } 3%,9% { transform:rotate(-26deg); } 6% { transform:rotate(-12deg); } }
-.panda[data-pose="happy"] .figure { animation: hop .95s var(--ease) infinite; }
-.panda[data-pose="happy"] .arm.l { animation: cheerL .95s ease-in-out infinite; }
-.panda[data-pose="happy"] .arm.r { animation: cheerR .95s ease-in-out infinite; }
-@keyframes hop { 0%,100% { transform:translateY(0); } 40% { transform:translateY(-9px); } }
-@keyframes cheerL { 0%,100% { transform:rotate(0); } 40% { transform:rotate(32deg); } }
-@keyframes cheerR { 0%,100% { transform:rotate(0); } 40% { transform:rotate(-32deg); } }
-.panda .sparks path { transform-box:fill-box; transform-origin:center; animation: twinkle 1.4s ease-in-out infinite; }
-.panda .sparks .s2 { animation-delay:.55s; }
-@keyframes twinkle { 0%,100% { opacity:.2; transform:scale(.5) rotate(0); } 50% { opacity:1; transform:scale(1.15) rotate(20deg); } }
-.panda[data-pose="scan"] .head { animation: lookAround 2.4s ease-in-out infinite; }
-.panda[data-pose="scan"] .pupil { animation: glance 2.4s ease-in-out infinite; }
-.panda[data-pose="scan"] .lens { transform-box:fill-box; transform-origin:0% 0%; animation: sweepLens 2.4s ease-in-out infinite; }
-@keyframes lookAround { 0%,100% { transform:rotate(-7deg) translateX(-2px); } 50% { transform:rotate(7deg) translateX(2px); } }
-@keyframes glance { 0%,100% { transform:translateX(-2px); } 50% { transform:translateX(2px); } }
-@keyframes sweepLens { 0%,100% { transform:translate(-6px,2px) rotate(-10deg); } 50% { transform:translate(5px,-4px) rotate(10deg); } }
-.panda[data-pose="think"] .head { animation: ponder 3.2s ease-in-out infinite; }
-.panda[data-pose="think"] .thought circle { animation: floaty 1.8s ease-in-out infinite; }
-.panda[data-pose="think"] .thought circle:nth-child(2) { animation-delay:.25s; }
-.panda[data-pose="think"] .thought circle:nth-child(3) { animation-delay:.5s; }
-@keyframes ponder { 0%,100% { transform:rotate(6deg); } 50% { transform:rotate(-1deg); } }
-@keyframes floaty { 0%,100% { transform:translateY(0); opacity:.6; } 50% { transform:translateY(-3px); opacity:1; } }
-.panda[data-pose="sad"] .head { animation: droop 4s ease-in-out infinite; }
-@keyframes droop { 0%,100% { transform:translateY(3px) rotate(-3deg); } 50% { transform:translateY(5px) rotate(2deg); } }
-.panda[data-pose="carry"] .figure { animation: trudge .62s ease-in-out infinite; }
-.panda[data-pose="carry"] .leg.l { animation: stepL .62s ease-in-out infinite; }
-.panda[data-pose="carry"] .leg.r { animation: stepR .62s ease-in-out infinite; }
-.panda[data-pose="carry"] .bamboo { transform-origin:50% 90%; animation: sway .62s ease-in-out infinite; }
-.panda[data-pose="carry"] .leaf { transform-box:fill-box; transform-origin:0% 50%; animation: rustle 1.2s ease-in-out infinite; }
-@keyframes trudge { 0%,100% { transform:translateY(0) rotate(-1.5deg); } 50% { transform:translateY(-3px) rotate(1.5deg); } }
-@keyframes stepL { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-5px); } }
-@keyframes stepR { 0%,100% { transform:translateY(-5px); } 50% { transform:translateY(0); } }
-@keyframes sway { 0%,100% { transform:rotate(-1.5deg); } 50% { transform:rotate(1.5deg); } }
-@keyframes rustle { 0%,100% { transform:rotate(-6deg); } 50% { transform:rotate(6deg); } }
+.panda .figure, .panda .head, .panda .torso, .panda .arm, .panda .leg, .panda .eyes, .panda .bamboo, .panda .lens, .panda .zzz, .panda .thought, .panda .sparks path { transform-box:fill-box; transform-origin:center; }
+.panda .torso { transform-origin:50% 100%; animation: breathe 6s ease-in-out infinite; }
+.panda .head { transform-origin:50% 90%; animation: headIdle 9s ease-in-out infinite; }
+.panda .eyes { animation: blink 8s ease-in-out infinite; }
+@keyframes breathe { 0%,100% { transform:scaleY(1); } 50% { transform:scaleY(1.02); } }
+@keyframes headIdle { 0%,100% { transform:rotate(0) translateY(0); } 50% { transform:rotate(-1.6deg) translateY(1.5px); } }
+@keyframes blink { 0%,94%,100% { transform:scaleY(1); } 97% { transform:scaleY(.1); } }
+.panda .zzz { animation: drift 8s ease-in-out infinite; opacity:0; }
+@keyframes drift { 0%,100% { opacity:0; transform:translate(0,4px); } 35%,65% { opacity:.85; transform:translate(2px,-3px); } }
+.panda[data-pose="happy"] .figure { animation: contentSway 5s ease-in-out infinite; }
+@keyframes contentSway { 0%,100% { transform:rotate(-1.5deg); } 50% { transform:rotate(1.5deg); } }
+.panda .sparks path { animation: twinkle 3.4s ease-in-out infinite; }
+.panda .sparks .s2 { animation-delay:1.4s; }
+@keyframes twinkle { 0%,100% { opacity:.25; transform:scale(.6); } 50% { opacity:1; transform:scale(1.05); } }
+.panda[data-pose="scan"] .head { animation: lookSlow 6s ease-in-out infinite; }
+.panda[data-pose="scan"] .lens { animation: lensBob 6s ease-in-out infinite; }
+@keyframes lookSlow { 0%,100% { transform:rotate(-4deg); } 50% { transform:rotate(4deg); } }
+@keyframes lensBob { 0%,100% { transform:translate(-2px,1px); } 50% { transform:translate(2px,-2px); } }
+.panda[data-pose="think"] .head { animation: ponder 7s ease-in-out infinite; }
+.panda[data-pose="think"] .thought circle { animation: fadeDots 3.2s ease-in-out infinite; }
+.panda[data-pose="think"] .thought circle:nth-child(2) { animation-delay:.4s; }
+.panda[data-pose="think"] .thought circle:nth-child(3) { animation-delay:.8s; }
+@keyframes ponder { 0%,100% { transform:rotate(5deg); } 50% { transform:rotate(1deg); } }
+@keyframes fadeDots { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+.panda[data-pose="sad"] .head { animation: droop 7s ease-in-out infinite; }
+@keyframes droop { 0%,100% { transform:translateY(3px) rotate(-3deg); } 50% { transform:translateY(5px) rotate(1deg); } }
+.panda[data-pose="carry"] .figure { animation: plod 1.7s ease-in-out infinite; }
+.panda[data-pose="carry"] .leg.l { animation: stepL 1.7s ease-in-out infinite; }
+.panda[data-pose="carry"] .leg.r { animation: stepR 1.7s ease-in-out infinite; }
+.panda[data-pose="carry"] .bamboo { transform-origin:50% 90%; animation: sway 1.7s ease-in-out infinite; }
+@keyframes plod { 0%,100% { transform:translateY(0) rotate(-1deg); } 50% { transform:translateY(-2px) rotate(1deg); } }
+@keyframes stepL { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-3px); } }
+@keyframes stepR { 0%,100% { transform:translateY(-3px); } 50% { transform:translateY(0); } }
+@keyframes sway { 0%,100% { transform:rotate(-1deg); } 50% { transform:rotate(1deg); } }
 
 /* Scan card + radar */
 .scanCard { display:grid; grid-template-columns:auto 1fr; gap:14px 22px; align-items:center; margin-top:14px; padding:16px 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel-soft); }
@@ -1419,6 +1409,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 }
 
 /* Reduced motion: keep layout and state, drop movement. */
+/* v3: calm. Motion is reserved for the panda and real progress. */
+.primaryNav button:hover { transform:none; }
+.workspace.viewEnter > * { animation: fadeIn .2s ease both; animation-delay:0s !important; }
+@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+button:hover:not(:disabled), button:active:not(:disabled) { transform:none; }
+.statusDot.working { animation:none; }
+.inventoryMetrics button, .installedChips button { animation:none; }
+.setupChoices label:hover, .quickCard:hover { transform:none; }
+.pandaStage { width:96px; height:96px; }
+.pandaGuide { padding:10px 20px 10px 12px; }
+.scanLine { height:3px; margin-top:10px; border-radius:99px; background:#16213a; overflow:hidden; max-width:260px; }
+.scanLine span { display:block; width:40%; height:100%; border-radius:inherit; background:linear-gradient(90deg, transparent, var(--bamboo), transparent); animation: slide 3s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
   .radar span { animation:none !important; }
@@ -1439,3 +1442,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   .selectionSummary { flex-direction:row; flex-wrap:wrap; align-items:center; }
   .selectionSummary .primaryAction { flex:1 1 100%; }
 }
+
+.panda ellipse[fill="#1b2130"], .panda circle[fill="#1b2130"] { stroke:#37445f; stroke-width:1.2; }

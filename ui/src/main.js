@@ -242,15 +242,14 @@ function pandaMood(){
 
 function renderPandaGuide(extra=""){
   const mood=pandaMood();
-  return `<section class="pandaGuide" data-pose="${mood.pose}" aria-live="polite"><div class="pandaStage">${pandaSvg(mood.pose)}</div><div class="pandaSpeech"><b>${escapeHtml(mood.title)}</b><p>${escapeHtml(mood.text)}</p>${extra}</div></section>`;
+  return `<section class="pandaGuide" data-pose="${mood.pose}" aria-live="polite"><div class="pandaStage">${pandaSvg(mood.pose)}</div><div class="pandaSpeech"><b>${escapeHtml(mood.title)}</b><p>${escapeHtml(mood.text)}</p>${mood.pose==="scan"?`<div class="scanLine" aria-hidden="true"><span></span></div>`:""}${extra}</div></section>`;
 }
 
 function renderScanCard(){
   if(softwareScanError){
     return `<section class="scanCard scanFailed"><div><b>The software scan could not finish</b><p>Nothing was changed. You can still set up tools, or try the scan again.</p></div><button id="retryScan" class="secondaryAction">Scan again</button><details><summary>Technical details</summary><pre>${escapeHtml(softwareScanError)}</pre></details></section>`;
   }
-  if(softwareIntelligence){return "";}
-  return `<section class="scanCard scanning" aria-live="polite"><div class="radar" aria-hidden="true"><i></i><i></i><i></i><span></span></div><ul class="scanSteps"><li>Reading installed software</li><li>Checking Winget</li><li>Matching the approved catalog</li></ul><div class="scanBar" aria-hidden="true"><span></span></div></section>`;
+  return "";
 }
 
 function renderReturningSummary(){

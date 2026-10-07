@@ -217,7 +217,7 @@ test("the panda guide leads setup, scanning, review, install, and error states",
   const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
   for (const pose of ["idle", "scan", "think", "happy", "sad", "carry"]) {
     assert.match(panda, new RegExp(`"${pose}"`));
-    assert.match(css, new RegExp(`\\.panda\\[data-pose="${pose}"\\]|\\.pandaGuide\\[data-pose="${pose}"\\]`));
+    if (pose !== "idle") { assert.match(css, new RegExp(`\\.panda\\[data-pose="${pose}"\\]`)); }
   }
   assert.match(panda, /Bamboo|bamboo/);
   assert.match(panda, /role="img"/);
