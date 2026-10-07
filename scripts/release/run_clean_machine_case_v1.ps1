@@ -1,5 +1,5 @@
 param(
-  [Parameter(Mandatory=$true)][string]$RepoRoot,
+  [string]$RepoRoot=(Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
   [Parameter(Mandatory=$true)][string]$CaseId,
   [Parameter(Mandatory=$true)][string]$InstallerPath,
   [switch]$Execute,

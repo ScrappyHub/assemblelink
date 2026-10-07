@@ -1031,9 +1031,9 @@ async function uninstallSelfNow(){
 async function updateToolkit(kitId){
   const kit=(setupData?.toolkits?.toolkits||[]).find(k=>k.id===kitId);
   if(!kit||kitBusy){return;}
-  kitBusy=kitId; kitNotes[kitId]="Checking for newer versions…"; render();
+  kitBusy=kitId; kitNotes[kitId]="Checking the latest scan for newer versions…"; render();
   try{
-    await refreshSoftwareIntelligence(true);
+    if(!softwareIntelligence){await refreshSoftwareIntelligence(false);}
     const n=kitUpdates(kit,installedByCatalog()).length;
     if(!n){kitNotes[kitId]="Everything installed in this toolkit is up to date.";}
     else{

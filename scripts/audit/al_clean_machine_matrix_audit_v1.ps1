@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$RepoRoot)
+param([string]$RepoRoot=(Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 function EnsureDir([string]$Path){if(-not(Test-Path -LiteralPath $Path -PathType Container)){New-Item -ItemType Directory -Force -Path $Path|Out-Null}}
 function WriteUtf8([string]$Path,[string]$Text){EnsureDir (Split-Path -Parent $Path);[IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false)))}
