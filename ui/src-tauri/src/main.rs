@@ -1193,6 +1193,181 @@ fn uninstall_software(
         .map_err(|e| e.to_string())
 }
 
+const MAX_HISTORY_RUNS: usize = 100;
+const MAX_HISTORY_FILE_BYTES: u64 = 4 * 1024 * 1024;
+
+fn is_execution_record_name(name: &str) -> bool {
+    name.strip_prefix("setup_execution.")
+        .and_then(|rest| rest.strip_suffix(".json"))
+        .is_some_and(|id| id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+// Characters that cmd.exe would expand or treat as operators inside the self-uninstall command line.
+fn safe_cmd_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= 520
+        && !path
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '%' | '^' | '&' | '"' | '!' | '<' | '>' | '|'))
+}
+
+fn evidence_integrity(path: &Path, bytes: &[u8]) -> &'static str {
+    let sidecar = PathBuf::from(format!("{}.sha256", path.to_string_lossy()));
+    let Ok(text) = fs::read_to_string(&sidecar) else {
+        return "unverified";
+    };
+    let expected = text
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if expected.len() == 64 && expected.chars().all(|c| c.is_ascii_hexdigit()) {
+        if expected == sha256_hex(bytes) {
+            "valid"
+        } else {
+            "mismatch"
+        }
+    } else {
+        "unverified"
+    }
+}
+
+fn json_text(value: &serde_json::Value, key: &str, max: usize) -> String {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(max)
+        .collect()
+}
+
+fn sorted_recent(mut paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    paths.sort_by_key(|p| std::cmp::Reverse(fs::metadata(p).and_then(|m| m.modified()).ok()));
+    paths.truncate(MAX_HISTORY_RUNS);
+    paths
+}
+
+fn read_bounded_json(path: &Path) -> Option<(serde_json::Value, Vec<u8>)> {
+    let meta = fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_HISTORY_FILE_BYTES {
+        return None;
+    }
+    let bytes = fs::read(path).ok()?;
+    let payload = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    Some((value, bytes))
+}
+
+// What AssembleLink itself installed or removed, read from its own integrity-checked records.
+fn install_history(root: &Path) -> serde_json::Value {
+    let state = root.join("state");
+    let mut run_paths = Vec::new();
+    if let Ok(entries) = fs::read_dir(&state) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let ok_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(is_execution_record_name);
+            if ok_name && path.is_file() {
+                run_paths.push(path);
+            }
+        }
+    }
+    let mut runs = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for path in sorted_recent(run_paths) {
+        let Some((value, bytes)) = read_bounded_json(&path) else {
+            continue;
+        };
+        if value.get("schema").and_then(serde_json::Value::as_str)
+            != Some("assemblelink.setup_execution.v1")
+        {
+            continue;
+        }
+        let run_id = json_text(&value, "run_id", 64);
+        if !seen.insert(run_id.clone()) {
+            continue;
+        }
+        let meta = value.get("metadata").cloned().unwrap_or_default();
+        let results: Vec<serde_json::Value> = value
+            .get("results")
+            .and_then(serde_json::Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .take(500)
+                    .map(|r| {
+                        serde_json::json!({
+                            "id": json_text(r, "id", 96),
+                            "name": json_text(r, "name", 120),
+                            "winget_id": json_text(r, "winget_id", 128),
+                            "status": json_text(r, "status", 48),
+                            "exit_code": r.get("exit_code").cloned().unwrap_or(serde_json::Value::Null),
+                            "verified": r.get("verified").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                            "source_verified": r.get("source_verified").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                            "message": json_text(r, "message", 300),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        runs.push(serde_json::json!({
+            "run_id": run_id,
+            "executed": value.get("executed").and_then(serde_json::Value::as_bool).unwrap_or(false),
+            "started_utc": json_text(&meta, "started_utc", 40),
+            "completed_utc": json_text(&meta, "completed_utc", 40),
+            "integrity": evidence_integrity(&path, &bytes),
+            "sha256": sha256_hex(&bytes),
+            "results": results,
+        }));
+    }
+    let mut removal_paths = Vec::new();
+    if let Ok(entries) = fs::read_dir(state.join("uninstall_receipts")) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let ok_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("uninstall.") && n.ends_with(".json"));
+            if ok_name && path.is_file() {
+                removal_paths.push(path);
+            }
+        }
+    }
+    let mut removals = Vec::new();
+    for path in sorted_recent(removal_paths) {
+        let Some((value, bytes)) = read_bounded_json(&path) else {
+            continue;
+        };
+        if value.get("schema").and_then(serde_json::Value::as_str)
+            != Some("assemblelink.uninstall_receipt.v1")
+        {
+            continue;
+        }
+        removals.push(serde_json::json!({
+            "catalog_id": json_text(&value, "catalog_id", 96),
+            "winget_id": json_text(&value, "winget_id", 128),
+            "status": json_text(&value, "status", 32),
+            "exit_code": value.get("exit_code").cloned().unwrap_or(serde_json::Value::Null),
+            "observed_unix": value.get("observed_utc").and_then(serde_json::Value::as_u64).unwrap_or(0),
+            "sha256": sha256_hex(&bytes),
+        }));
+    }
+    serde_json::json!({
+        "schema": "assemblelink.install_history.v1",
+        "note": "Built from AssembleLink's own execution records. Winget downloads installers to a temporary location and removes them after installing, so no installer files are kept.",
+        "runs": runs,
+        "removals": removals,
+    })
+}
+
+#[tauri::command]
+fn get_install_history(app: AppHandle) -> Result<String, String> {
+    let (_guard, root) = locked_runtime(&app)?;
+    serde_json::to_string(&install_history(&root)).map_err(|e| e.to_string())
+}
+
 // Silent self-uninstall: hand off to the installer's uninstall.exe (NSIS /S), then exit so no file is locked.
 #[tauri::command]
 fn uninstall_assemblelink(app: AppHandle, approved: bool) -> Result<String, String> {
@@ -1209,6 +1384,9 @@ fn uninstall_assemblelink(app: AppHandle, approved: bool) -> Result<String, Stri
         return Err("UNINSTALLER_NOT_FOUND: this copy is not an installed build (no uninstall.exe next to it)".into());
     }
     let uninstaller = plain_windows_path(&uninstaller);
+    if !safe_cmd_path(&uninstaller.to_string_lossy()) {
+        return Err("UNINSTALLER_PATH_REJECTED: install path contains characters that are unsafe for a command line".into());
+    }
     let mut cmd = Command::new("cmd.exe");
     #[cfg(windows)]
     cmd.creation_flags(0x08000008);
@@ -1257,7 +1435,8 @@ fn main() {
             refresh_system_profile,
             get_workstation_assurance,
             uninstall_software,
-            uninstall_assemblelink
+            uninstall_assemblelink,
+            get_install_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running AssembleLink");
@@ -1515,6 +1694,62 @@ mod tests {
             build_workstation_assurance(&base).unwrap_err(),
             "ASSURANCE_FIXTURE_EVIDENCE_REJECTED"
         );
+        let _ = fs::remove_dir_all(base);
+    }
+    #[test]
+    fn execution_record_names_are_strict() {
+        assert!(is_execution_record_name(
+            "setup_execution.0123456789abcdef0123456789abcdef.json"
+        ));
+        assert!(!is_execution_record_name("setup_execution.latest.json"));
+        assert!(!is_execution_record_name("setup_execution.progress.json"));
+        assert!(!is_execution_record_name(
+            "setup_execution.0123456789abcdef0123456789abcdef.json.sha256"
+        ));
+        assert!(!is_execution_record_name("setup_execution.zz.json"));
+    }
+    #[test]
+    fn self_uninstall_path_rejects_cmd_metacharacters() {
+        assert!(safe_cmd_path(
+            r"C:\Users\Al\AppData\Local\AssembleLink\uninstall.exe"
+        ));
+        for bad in [
+            "C:\\a&b\\u.exe",
+            "C:\\%PATH%\\u.exe",
+            "C:\\a^b\\u.exe",
+            "C:\\a\"b\\u.exe",
+            "C:\\a!b\\u.exe",
+            "C:\\a|b",
+            "",
+        ] {
+            assert!(!safe_cmd_path(bad), "{bad}");
+        }
+    }
+    #[test]
+    fn install_history_reports_integrity_and_skips_copies() {
+        let base =
+            env::temp_dir().join(format!("assemblelink-history-test-{}", std::process::id()));
+        let state = base.join("state");
+        fs::create_dir_all(&state).unwrap();
+        let id = "0123456789abcdef0123456789abcdef";
+        let body = format!(
+            r#"{{"schema":"assemblelink.setup_execution.v1","run_id":"{id}","executed":true,"metadata":{{"started_utc":"2026-01-01T00:00:00Z","completed_utc":"2026-01-01T00:01:00Z"}},"results":[{{"id":"git","name":"Git","winget_id":"Git.Git","status":"installed","exit_code":0,"verified":true,"source_verified":true,"message":"ok"}}]}}"#
+        );
+        let path = state.join(format!("setup_execution.{id}.json"));
+        fs::write(&path, &body).unwrap();
+        fs::write(
+            state.join(format!("setup_execution.{id}.json.sha256")),
+            format!("{}  x\n", sha256_hex(body.as_bytes())),
+        )
+        .unwrap();
+        fs::write(state.join("setup_execution.latest.json"), &body).unwrap();
+        let history = install_history(&base);
+        let runs = history["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0]["integrity"], "valid");
+        assert_eq!(runs[0]["results"][0]["winget_id"], "Git.Git");
+        fs::write(&path, body.replace("installed", "tampered!")).unwrap();
+        assert_eq!(install_history(&base)["runs"][0]["integrity"], "mismatch");
         let _ = fs::remove_dir_all(base);
     }
 }

@@ -15,7 +15,7 @@ $checks=@(
   [pscustomobject]@{ item="inventory room renderer"; ok=($raw -match 'function renderInventory' -and $raw -match 'roomSvg') },
   [pscustomobject]@{ item="panda prompts"; ok=($raw -match 'data-panda-ask="updates"' -and $raw -match 'data-panda-ask="unknown"') },
   [pscustomobject]@{ item="long scroll with search and filters"; ok=($raw -match 'scrollWrap' -and $raw -match 'id="softwareSearch"' -and $raw -match 'data-inv-filter') },
-  [pscustomobject]@{ item="long versions are truncated"; ok=($raw -match 'function shortVersion') },
+  [pscustomobject]@{ item="long versions are truncated"; ok=($raw -match 'shortVersion') },
   [pscustomobject]@{ item="room scenery module"; ok=($scenes -match 'export function roomSvg') }
 )
 

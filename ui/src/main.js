@@ -1,6 +1,7 @@
 import "./style.css";
 import {pandaSvg} from "./panda.js";
 import {roomSvg, readerSvg, grassSvg} from "./scenes.js";
+import {shortVersion, versionState, versionSummary, formatWhen, lastInstallByWingetId} from "./lib.js";
 
 let workstationHealth = null;
 
@@ -90,6 +91,13 @@ async function loadReceipts(){
     receiptIndex=null;
     receiptLoadError=String(err);
   }
+}
+
+let installHistory=null;
+let installHistoryError="";
+async function loadInstallHistory(){
+  try{ installHistory=sanitizeStateValue(JSON.parse(await invokeDesktop("get_install_history"))); installHistoryError=""; }
+  catch(err){ installHistory=null; installHistoryError=String(err); }
 }
 
 async function loadWorkstationAssurance(){
@@ -354,16 +362,12 @@ const reducedMotion = () => !!window.matchMedia?.("(prefers-reduced-motion: redu
 
 const MENUS = [
   {id:"file", label:"File", items:[["go","home","Get started"],["go","wizard","Set up this computer"],["go","toolkits","Job toolkits"],["go","catalog","Software & CLI catalog"],["go","inventory","Installed software"],["go","readiness","Job readiness"],["go","project","Analyze a project"],["sep"],["act","rescan","Rescan this computer"]]},
-  {id:"logs", label:"Logs", items:[["go","blueprints","Blueprints / Rebuild"],["go","receipts","Receipts"],["go","proof","Workstation proof"]]},
+  {id:"logs", label:"Logs", items:[["go","blueprints","Blueprints / Rebuild"],["go","history","Install history"],["go","receipts","Receipts"],["go","proof","Workstation proof"]]},
   {id:"drivers", label:"Drivers", items:[["go","drivers","Drivers & hardware"],["go","updates","Software updates"],["sep"],["act","rehw","Rescan hardware"]]},
   {id:"help", label:"Help", items:[["go","how","How it works"],["go","safety","Safety promises"],["go","uninstall","Uninstall…"],["sep"],["go","about","About & diagnostics"]]}
 ];
-const VIEW_MENU = {home:"file",wizard:"file",toolkits:"file",catalog:"file",inventory:"file",readiness:"file",project:"file",blueprints:"logs",receipts:"logs",proof:"logs",drivers:"drivers",updates:"drivers",how:"help",safety:"help",uninstall:"help",about:"help"};
+const VIEW_MENU = {home:"file",wizard:"file",toolkits:"file",catalog:"file",inventory:"file",readiness:"file",project:"file",blueprints:"logs",receipts:"logs",history:"logs",proof:"logs",drivers:"drivers",updates:"drivers",how:"help",safety:"help",uninstall:"help",about:"help"};
 
-function shortVersion(v){
-  const t=String(v??"").split(/\s+(?:SHA|@?Commit)\b/i)[0].trim();
-  return t.length>18?`${t.slice(0,17)}…`:t;
-}
 function installedByCatalog(){
   return new Map((softwareIntelligence?.items||[]).filter(x=>x.installed&&x.catalog_id).map(x=>[x.catalog_id,x]));
 }
@@ -378,6 +382,7 @@ function go(next){
   if(next==="wizard"&&!setupRunning&&setupResult){resetRun();wizardStep=1;}
   if(next==="wizard"&&!setupPlan&&!setupRunning){setupMode="setup";}
   view=next; openMenu="";
+  if(next==="history"){loadInstallHistory().then(()=>{if(view==="history")render();});}
   render(); window.scrollTo({top:0});
 }
 function startWizard({toolkit="",step=1,mode="setup"}={}){
@@ -638,6 +643,12 @@ function kitProgress(kit,installed){
   return {total:ids.length,have:have.length,missing:ids.filter(id=>!installed.has(id)),pct:ids.length?Math.round(have.length/ids.length*100):0};
 }
 function ring(pct,label){ return `<div class="ring" style="--p:${pct}" role="img" aria-label="${pct}% installed"><b>${label??`${pct}%`}</b></div>`; }
+let openKit="";
+let kitBusy="";
+let kitNotes={};
+function kitUpdates(kit,installed){
+  return (kit.software_ids||[]).map(id=>installed.get(id)).filter(a=>a&&a.update_status==="update_available");
+}
 function renderToolkits(){
   if(!setupData){return noRuntime();}
   const kits=setupData.toolkits?.toolkits||[];
@@ -649,10 +660,12 @@ function renderToolkits(){
   return `${pageHead("Job toolkits","Hand-picked sets of tools for a kind of work. Pick one and I will build it.")}
     <div class="filterRow"><input id="kitSearch" type="search" placeholder="Search toolkits" value="${escapeHtml(kitSearch)}" aria-label="Search toolkits">${families.map(f=>`<button class="chipBtn ${kitFamily===f?"active":""}" data-kit-family="${escapeHtml(f)}">${f==="all"?"All":escapeHtml(f)}</button>`).join("")}</div>
     <div class="kitGrid">${shown.map(k=>{const p=kitProgress(k,installed);return `<article class="kitCard" data-family="${escapeHtml((k.job_family||"Other").toLowerCase().replace(/[^a-z]+/g,"-"))}">
-      <header>${ring(p.pct)}<div><span class="familyTag">${escapeHtml(k.job_family||"Other")}</span><h3>${escapeHtml(k.name)}</h3></div></header>
+      <header>${ring(p.pct)}<div><span class="familyTag">${escapeHtml(k.job_family||"Other")}</span><h3>${escapeHtml(k.name)}</h3></div><button class="recycleBtn ${kitBusy===k.id?"spin":""}" data-kit-update="${escapeHtml(k.id)}" title="Check and update this toolkit" aria-label="Update ${escapeHtml(k.name)}" ${p.have?"":"disabled"}>♻</button></header>
       <p>${escapeHtml(k.description)}</p>
       <small>${p.total} tools · ${p.have} already installed</small>
-      <details><summary>See the ${p.total} tools</summary><ul class="toolList">${(k.software_ids||[]).map(id=>`<li class="${installed.has(id)?"have":""}">${escapeHtml(items.get(id)?.name||id)}</li>`).join("")}</ul></details>
+      ${kitNotes[k.id]?`<p class="kitNote" role="status">${escapeHtml(kitNotes[k.id])}</p>`:""}
+      <button class="btn ghost small seeTools" data-kit-open="${escapeHtml(k.id)}" aria-expanded="${openKit===k.id}">▸ See the ${p.total} tools</button>
+      ${openKit===k.id?`<div class="kitOverlay" role="dialog" aria-label="${escapeHtml(k.name)} tools"><div class="kitOverlayTop"><b>${escapeHtml(k.name)}</b><button class="btn ghost small" data-kit-close="1">Close ✕</button></div><ul class="toolList">${(k.software_ids||[]).map(id=>{const a=installed.get(id);const vs=a?versionState({...a,version:a.installed_version}):null;return `<li class="${a?"have":""}"><span>${escapeHtml(items.get(id)?.name||id)}</span><small>${a?escapeHtml(shortVersion(a.installed_version)||"installed")+(vs.key==="update"?` → ${escapeHtml(vs.avail)}`:""):"not installed"}</small></li>`;}).join("")}</ul></div>`:""}
       <button class="btn primary small" data-kit-start="${escapeHtml(k.id)}">${p.pct===100?"Review anyway":"Start with this"}</button>
     </article>`;}).join("")||`<p class="empty">No toolkits match that search.</p>`}</div>`;
 }
@@ -673,7 +686,7 @@ function renderCatalog(){
       <span class="catName"><b>${escapeHtml(x.name)}</b><small>${escapeHtml(x.winget_id||"Manual review")}</small></span>
       <span class="tag">${escapeHtml((x.category||"software").replaceAll("-"," "))}</span>
       <span class="lic">${escapeHtml((x.license||"license review").replaceAll("_"," "))}</span>
-      <span class="inst ${inst?"yes":""}" ${v?`title="${escapeHtml(v)}"`:""}>${inst?`<i></i>${v?escapeHtml(shortVersion(v)):"Installed"}`:""}</span>
+      <span class="inst ${inst?"yes":""}" ${v?`title="${escapeHtml(v)}"`:""}>${inst?`<i></i>${v?escapeHtml(shortVersion(v)):"Installed"}${(()=>{const vs=versionState({...inst,version:v});return vs.key==="update"?` <em class="newer">→ ${escapeHtml(vs.avail)}</em>`:vs.key==="current"?` <em class="ok">up to date</em>`:"";})()}`:`<em class="none">${x.winget_id?"not installed":""}</em>`}</span>
     </label>`;}).join("")||`<p class="empty">Nothing matches that search.</p>`}</div>
     ${n?`<div class="stickyBar"><span><b>${n}</b> ${n===1?"item":"items"} in your setup</span><button id="addToSetup" class="btn primary">Continue to setup →</button></div>`:""}`;
 }
@@ -725,7 +738,7 @@ function renderInventoryDetail(){
   if(!app){return "";}
   const managed=!!app.catalog_id;
   return `<div class="invDetail"><div class="invDetailTop"><h3>${escapeHtml(app.name||"Unknown software")}</h3><button id="closeInvDetail" class="btn ghost small">Close</button></div>
-    <dl><div><dt>Category</dt><dd>${escapeHtml(softwareCategory(app))}</dd></div><div><dt>Installed version</dt><dd title="${escapeHtml(app.version||"")}">${escapeHtml(shortVersion(app.version)||"Unknown")}</dd></div><div><dt>Available version</dt><dd>${escapeHtml(shortVersion(app.available_version)||"Unknown")}</dd></div><div><dt>Update status</dt><dd>${escapeHtml(humanStatus(app.update_status||"unmatched"))}</dd></div><div><dt>Publisher</dt><dd>${escapeHtml(app.publisher||"Unknown")}</dd></div><div><dt>Catalog identity</dt><dd>${escapeHtml(app.winget_id||app.catalog_id||"Unmatched")}</dd></div><div><dt>Provider state</dt><dd>${escapeHtml(humanStatus(app.provider_status||"not checked"))}</dd></div><div><dt>Inventory class</dt><dd>${escapeHtml(humanStatus(app.inventory_kind||"unclassified"))}</dd></div><div><dt>Catalog action</dt><dd>${escapeHtml(humanStatus(app.catalog_action||"review"))}</dd></div></dl>
+    <dl><div><dt>Category</dt><dd>${escapeHtml(softwareCategory(app))}</dd></div><div><dt>Installed version</dt><dd title="${escapeHtml(app.version||"")}">${escapeHtml(shortVersion(app.version)||"Unknown")}</dd></div><div><dt>Available version</dt><dd>${escapeHtml(shortVersion(app.available_version)||"Unknown")}</dd></div><div><dt>Update status</dt><dd>${escapeHtml(versionState(app).label)}</dd></div><div><dt>Installed by AssembleLink</dt><dd>${(()=>{const h=lastInstallByWingetId(installHistory).get(String(app.winget_id||"").toLowerCase());return h?escapeHtml(`${humanStatus(h.status)} · ${formatWhen(h.completed_utc)}`):"No record";})()}</dd></div><div><dt>Publisher</dt><dd>${escapeHtml(app.publisher||"Unknown")}</dd></div><div><dt>Catalog identity</dt><dd>${escapeHtml(app.winget_id||app.catalog_id||"Unmatched")}</dd></div><div><dt>Provider state</dt><dd>${escapeHtml(humanStatus(app.provider_status||"not checked"))}</dd></div><div><dt>Inventory class</dt><dd>${escapeHtml(humanStatus(app.inventory_kind||"unclassified"))}</dd></div><div><dt>Catalog action</dt><dd>${escapeHtml(humanStatus(app.catalog_action||"review"))}</dd></div></dl>
     <div class="invActions">${app.update_status==="update_available"?`<button class="btn primary small" data-go="updates">Review update</button>`:""}<button class="btn secondary small" data-find-catalog="${escapeHtml(app.name||"")}">Find in catalog</button>${managed?`<button class="btn danger small" data-uninstall-search="${escapeHtml(app.name||"")}">Uninstall…</button>`:""}</div>
     <p class="fine">Executable uninstall commands and full install paths are intentionally excluded from this view.</p></div>`;
 }
@@ -764,7 +777,8 @@ function renderInventory(){
       <div class="filterRow tight">${filters.map(([id,label])=>`<button class="chipBtn ${invFilter===id?"active":""}" data-inv-filter="${id}">${escapeHtml(label)}</button>`).join("")}</div>
       <p class="count">Showing ${shown} of ${rows.length} matching · ${softwareInventory.length} detected</p>
       ${renderInventoryDetail()}
-      <div class="scrollBody">${rows.slice(0,shown).map(({a,i,cat})=>`<button class="invRow ${invSelected===i?"on":""}" data-inv-index="${i}"><span class="invName"><b>${escapeHtml(a.name||"")}</b><small>${escapeHtml(a.publisher||"")}</small></span><span class="tag">${escapeHtml(cat)}</span><span class="invVer" title="${escapeHtml(a.version||"")}">${escapeHtml(shortVersion(a.version))}</span><span class="invStat ${escapeHtml(a.update_status||"unmatched")}">${escapeHtml(humanStatus(a.update_status||"unmatched"))}</span></button>`).join("")||`<p class="empty">${softwareInventory.length?"Nothing matches. Try a different filter.":"Run a scan and I will fill this shelf."}</p>`}${rows.length>shown?`<button id="invMore" class="btn ghost small moreRows">Show ${Math.min(100,rows.length-shown)} more</button>`:""}</div>
+      <div class="invHead" aria-hidden="true"><span>Software</span><span>Type</span><span>Installed</span><span>Available</span><span>Status</span></div>
+      <div class="scrollBody">${rows.slice(0,shown).map(({a,i,cat})=>`<button class="invRow ${invSelected===i?"on":""}" data-inv-index="${i}"><span class="invName"><b>${escapeHtml(a.name||"")}</b><small>${escapeHtml(a.publisher||"")}</small></span><span class="tag">${escapeHtml(cat)}</span><span class="invVer" title="${escapeHtml(a.version||"")}">${escapeHtml(shortVersion(a.version))}</span>${(()=>{const vs=versionState(a);return `<span class="invAvail ${vs.cls}" title="${escapeHtml(a.available_version||"")}">${escapeHtml(vs.avail)}</span><span class="invStat ${vs.cls}">${escapeHtml(vs.label)}</span>`;})()}</button>`).join("")||`<p class="empty">${softwareInventory.length?"Nothing matches. Try a different filter.":"Run a scan and I will fill this shelf."}</p>`}${rows.length>shown?`<button id="invMore" class="btn ghost small moreRows">Show ${Math.min(100,rows.length-shown)} more</button>`:""}</div>
     </div>
     <div class="rod" aria-hidden="true"></div>
   </section>
@@ -789,12 +803,31 @@ function renderReadiness(){
 // ---------- Updates ----------
 function renderUpdates(){
   const list=softwareInventory.filter(a=>a.update_status==="update_available");
+  const vsum=versionSummary(softwareInventory);
   return `${pageHead("Software updates","Compare what you have with approved sources. Nothing updates without your approval.",`<button id="scanUpdates" class="btn primary">Check for updates and build a plan</button>`)}
     ${statusLine()}
+    <section class="readySummary" aria-label="Version overview"><div><b>${vsum.current}</b><span>up to date</span></div><div><b>${vsum.update}</b><span>update available</span></div><div><b>${vsum.unknown}</b><span>version unknown</span></div><div><b>${vsum.unmatched}</b><span>not tracked</span></div></section>
     <section class="card"><h2>${list.length?`${list.length} ${list.length===1?"update is":"updates are"} ready`:"No updates reported"}</h2>
-      ${list.length?table(["Tool","Installed","Available"],list.map(a=>[a.name,shortVersion(a.version),shortVersion(a.available_version)||"—"])):`<p>${softwareIntelligence?"The last scan found nothing newer. Unknown statuses are never treated as current; check Installed software for any unknown versions.":"Run a check and I will tell you what is newer."}</p>`}
+      ${list.length?table(["Tool","Installed","Available","Source"],list.map(a=>[a.name,shortVersion(a.version),shortVersion(a.available_version)||"—",a.source||a.winget_id||"winget"])):`<p>${softwareIntelligence?"The last scan found nothing newer. Unknown statuses are never treated as current; check Installed software for any unknown versions.":"Run a check and I will tell you what is newer."}</p>`}
       <p class="fine">I ask Winget about exact approved package identities only. You will see the full plan and approve it before anything changes.</p>
     </section>`;
+}
+
+// ---------- Install history: what AssembleLink installed and removed ----------
+function renderHistory(){
+  const runs=(installHistory?.runs||[]);
+  const removals=(installHistory?.removals||[]);
+  const real=runs.filter(r=>r.executed);
+  const installedCount=real.reduce((n,r)=>n+(r.results||[]).filter(x=>/^installed|already/.test(x.status||"")).length,0);
+  const intLabel={valid:"Verified",mismatch:"Mismatch — do not trust",unverified:"No integrity file"};
+  return `${pageHead("Install history","What AssembleLink installed and removed on this computer, read from its own sealed records.",`<button id="refreshHistory" class="btn secondary">Refresh</button>`)}
+    <section class="readySummary"><div><b>${real.length}</b><span>install runs</span></div><div><b>${runs.length-real.length}</b><span>dry runs</span></div><div><b>${installedCount}</b><span>tools installed or present</span></div><div><b>${removals.length}</b><span>removals</span></div></section>
+    <section class="card"><p class="statusLine" role="status">${escapeHtml(installHistoryError)}</p>
+      <p class="fine">${escapeHtml(installHistory?.note||"Winget downloads installers to a temporary location and removes them after installing, so no installer files are kept. This list shows what was installed, from which package, and whether each install was verified.")}</p></section>
+    ${runs.length?runs.map(r=>`<section class="card histRun"><h3>${r.executed?"Install run":"Dry run (nothing installed)"} <small>${escapeHtml(formatWhen(r.completed_utc||r.started_utc))}</small></h3>
+      <p class="fine">Record: <b class="int ${escapeHtml(r.integrity)}">${escapeHtml(intLabel[r.integrity]||r.integrity)}</b> · ${escapeHtml(String(r.sha256||"").slice(0,16))}…</p>
+      ${(r.results||[]).length?table(["Tool","Package","Result","Verified"],r.results.map(x=>[x.name||x.id,x.winget_id||"—",humanStatus(x.status||"unknown"),x.verified?(x.source_verified?"Installed, source checked":"Installed"):"Not verified"])):"<p>No tools in this run.</p>"}</section>`).join(""):`<section class="card"><p class="empty">${installHistoryError?"History could not be read.":"No install runs recorded yet. When you set up this computer, each tool and its result will be listed here."}</p></section>`}
+    ${removals.length?`<section class="card"><h3>Removals</h3>${table(["Tool","Package","Result","When"],removals.map(x=>[x.catalog_id,x.winget_id,humanStatus(x.status),formatWhen(x.observed_unix)]))}</section>`:""}`;
 }
 
 // ---------- Drivers ----------
@@ -899,6 +932,7 @@ function renderPanel(){
     case "project": return renderProject();
     case "blueprints": return renderBlueprints();
     case "receipts": return renderReceipts();
+    case "history": return renderHistory();
     case "proof": return renderProof();
     case "drivers": return renderDrivers();
     case "updates": return renderUpdates();
@@ -959,7 +993,7 @@ async function approveAndRun(){
     const refreshIssues=[];
     try{await refreshSoftwareIntelligence(true);graph=buildLiveGraph();}
     catch(err){refreshIssues.push(`inventory refresh failed: ${String(err)}`);}
-    await loadReceipts();
+    await loadReceipts();await loadInstallHistory();
     await loadSetupRecovery();
     if(receiptLoadError){refreshIssues.push(`receipt refresh failed: ${receiptLoadError}`);}
     if(setupResult){operationMessage=refreshIssues.length?`Setup completed, but ${refreshIssues.join("; ")}.`:"Setup completed. Installed versions, readiness, and receipts are refreshed.";}
@@ -979,6 +1013,7 @@ async function uninstallProgram(catalogId){
     uninstallMessage=r.receipt?.status==="uninstalled"?`${entry.name} was uninstalled. Receipt ${String(r.sha256||"").slice(0,12)}…`:`${entry.name} could not be uninstalled (exit code ${r.receipt?.exit_code??"unknown"}). Close the app and try again. Nothing else was changed.`;
   }catch(err){uninstallMessage=String(err);}
   uninstallBusy=""; render();
+  try{await loadInstallHistory();}catch(_e){/* history is informational */}
   try{await refreshSoftwareIntelligence(true);graph=buildLiveGraph();}catch(_e){/* the next scan will correct the list */}
   render();
 }
@@ -991,6 +1026,23 @@ async function uninstallSelfNow(){
     await invokeDesktop("uninstall_assemblelink",{approved:true});
     selfUninstalling=true; render();
   }catch(err){uninstallMessage=String(err);render();}
+}
+
+async function updateToolkit(kitId){
+  const kit=(setupData?.toolkits?.toolkits||[]).find(k=>k.id===kitId);
+  if(!kit||kitBusy){return;}
+  kitBusy=kitId; kitNotes[kitId]="Checking for newer versions…"; render();
+  try{
+    await refreshSoftwareIntelligence(true);
+    const n=kitUpdates(kit,installedByCatalog()).length;
+    if(!n){kitNotes[kitId]="Everything installed in this toolkit is up to date.";}
+    else{
+      const plan=JSON.parse(await invokeDesktop("build_update_plan"));
+      if(plan.package_manager_available&&plan.item_count){kitNotes[kitId]="";kitBusy="";setupPlan=plan;setupResult=null;setupProgress=null;setupMode="update";wizardStep=3;operationMessage=`${n} update${n===1?"":"s"} in ${kit.name}. Review the plan and approve it; it lists every approved update, not just this toolkit.`;go("wizard");return;}
+      kitNotes[kitId]="Winget is unavailable, so I could not build an update plan.";
+    }
+  }catch(err){kitNotes[kitId]=String(err);}
+  kitBusy=""; render();
 }
 
 const actions={
@@ -1048,6 +1100,7 @@ const actions={
     catch(err){workstationAssurance=null;workstationAssuranceError=String(err);operationMessage="Workstation proof could not be completed.";}
     render();
   },
+  refreshHistory:async()=>{installHistoryError="Reading install records…";render();await loadInstallHistory();render();},
   refreshReceipts:async()=>{receiptLoadError="Refreshing local evidence…";render();await loadReceipts();render();},
   refreshDrivers:async()=>{driverLoadError="Scanning local hardware and installed driver versions…";render();await refreshDriverProfile();await loadReceipts();render();},
   welcomePanda:()=>actions.welcomeNext(), 
@@ -1070,6 +1123,9 @@ function onClick(e){
   let el;
   if((el=t.closest("[data-menu]"))){const id=el.getAttribute("data-menu");openMenu=openMenu===id?"":id;patchMenu();return;}
   if((el=t.closest("[data-act]"))){openMenu="";const a=el.getAttribute("data-act");if(a==="rescan"){rescanComputer();}else if(a==="rehw"){view="drivers";actions.refreshDrivers();}return;}
+  if((el=t.closest("[data-kit-open]"))){openKit=el.getAttribute("data-kit-open");render();return;}
+  if(t.closest("[data-kit-close]")){openKit="";render();return;}
+  if((el=t.closest("[data-kit-update]"))){updateToolkit(el.getAttribute("data-kit-update"));return;}
   if((el=t.closest("[data-kit-start]"))){startWizard({toolkit:el.getAttribute("data-kit-start"),step:2});return;}
   if((el=t.closest("[data-go]"))){go(el.getAttribute("data-go"));return;}
   if((el=t.closest("[data-kit-family]"))){kitFamily=el.getAttribute("data-kit-family");render();return;}
@@ -1128,7 +1184,7 @@ async function boot(){
     render();
     await loadSetupData();
     await loadSetupRecovery();
-    await loadReceipts();
+    await loadReceipts();await loadInstallHistory();
     graph=buildLiveGraph();render();
     await refreshSystemProfile();render();
     try{await refreshSoftwareIntelligence(false);graph=buildLiveGraph();}catch(err){softwareScanError=String(err);}

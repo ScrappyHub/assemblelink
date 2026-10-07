@@ -192,7 +192,7 @@ test("home is a get-started splash and the inventory is the panda's room", () =>
   assert.match(source, /Unknown version/);
   assert.match(source, /Inventory class/);
   assert.match(source, /Catalog action/);
-  assert.match(source, /function shortVersion/);
+  assert.match(source, /shortVersion/);
 });
 
 test("job toolkits and readiness have their own screens", () => {
@@ -291,4 +291,54 @@ test("the inventory room is a click-through visual-novel tour with the reading p
 test("the pages the user called out are visible tabs as well as menu items", () => {
   assert.match(source, /class="tabStrip"/);
   for(const label of ["Overview","Set up this computer","Job toolkits","Software & CLI catalog","Installed software","Job readiness"]){assert.match(source,new RegExp(`\\["[a-z]+","${label.replace(/[&]/g,"\\$&")}"\\]`));}
+});
+
+test("install history is read-only, integrity-checked and linked from Logs", async () => {
+  const rust = await readFile(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+  assert.match(rust, /fn get_install_history/);
+  assert.match(rust, /get_install_history\s*\]/);
+  assert.match(rust, /fn is_execution_record_name/);
+  assert.match(rust, /MAX_HISTORY_FILE_BYTES/);
+  assert.match(source, /invokeDesktop\("get_install_history"\)/);
+  assert.match(source, /\["go","history","Install history"\]/);
+  assert.match(source, /function renderHistory/);
+  assert.match(source, /Mismatch — do not trust/);
+});
+
+test("version availability is visible in inventory, catalog and updates", () => {
+  assert.match(source, /class="invHead"/);
+  assert.match(source, /invAvail/);
+  assert.match(source, /versionSummary\(softwareInventory\)/);
+  assert.match(source, /Installed by AssembleLink/);
+});
+
+test("self-uninstall rejects cmd metacharacters and both uninstall commands require approval", async () => {
+  const rust = await readFile(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+  assert.match(rust, /fn safe_cmd_path/);
+  assert.match(rust, /UNINSTALLER_PATH_REJECTED/);
+  assert.match(source, /invokeDesktop\("uninstall_software",\{catalogId,approved:true\}\)/);
+  assert.match(source, /invokeDesktop\("uninstall_assemblelink",\{approved:true\}\)/);
+});
+
+test("UI source has no dynamic code execution, inline handlers, or outside network calls", async () => {
+  const conf = JSON.parse(await readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const csp = JSON.stringify(conf?.app?.security?.csp ?? "");
+  for (const file of ["main.js", "lib.js", "scenes.js", "panda.js"]) {
+    const text = await readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /\beval\s*\(|new Function\s*\(|document\.write\s*\(/, file);
+    assert.doesNotMatch(text, /\son[a-z]+\s*=\s*["']/i, `${file} inline handler`);
+    assert.doesNotMatch(text, /fetch\(\s*["']https?:/i, `${file} external fetch`);
+    assert.doesNotMatch(text, /XMLHttpRequest|WebSocket|sendBeacon/, file);
+  }
+  assert.doesNotMatch(csp, /unsafe-eval/);
+});
+
+test("self-uninstall shows a waving, head-spinning goodbye overlay", async () => {
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  const panda = await readFile(new URL("../src/panda.js", import.meta.url), "utf8");
+  assert.match(source, /function renderBye/);
+  assert.match(source, /selfUninstalling\?renderBye\(\)/);
+  assert.match(panda, /"wave"/);
+  assert.match(css, /@keyframes byeSpin/);
+  assert.match(css, /@keyframes byeWave/);
 });
