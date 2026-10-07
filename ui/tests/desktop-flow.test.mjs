@@ -211,3 +211,29 @@ test("workstation assurance is integrity checked, visible, and refreshable", asy
   assert.match(rust,/workstation_assurance_receipt\.v1/);
   assert.match(rust,/get_workstation_assurance/);
 });
+
+test("the panda guide leads setup, scanning, review, install, and error states", async () => {
+  const panda = await readFile(new URL("../src/panda.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  for (const pose of ["idle", "scan", "think", "happy", "sad", "carry"]) {
+    assert.match(panda, new RegExp(`"${pose}"`));
+    if (pose !== "idle") { assert.match(css, new RegExp(`\\.panda\\[data-pose="${pose}"\\]`)); }
+  }
+  assert.match(panda, /Bamboo|bamboo/);
+  assert.match(panda, /role="img"/);
+  assert.match(source, /import \{pandaSvg\} from "\.\/panda\.js"/);
+  assert.match(source, /function pandaMood/);
+  assert.match(source, /pose:"carry"/);
+  assert.match(source, /renderScanCard/);
+  assert.match(source, /id="retryScan"/);
+  assert.match(source, /data-countup/);
+  assert.match(source, /carryTrack/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
+});
+
+test("setup keeps one decision visible and locks the selection while the plan is reviewed", () => {
+  assert.match(source, /class="modeTabs"/);
+  assert.match(source, /id="editSelection"/);
+  assert.match(source, /class="panel planPanel"/);
+  assert.doesNotMatch(source, /nav\("licensing"/);
+});

@@ -153,7 +153,19 @@ fn locked_runtime(app: &AppHandle) -> Result<(MutexGuard<'static, ()>, PathBuf),
     Ok((guard, root))
 }
 
+/// Windows PowerShell 5.1 cannot resolve `Join-Path` against verbatim (`\\?\`) paths,
+/// which `canonicalize` produces in development builds. Hand engines the plain form.
+fn plain_windows_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+        _ => path.to_path_buf(),
+    }
+}
+
 fn run_ps(root: &Path, relative_script: &str, args: &[&str]) -> Result<String, String> {
+    let root = plain_windows_path(root);
+    let root = root.as_path();
     let script = root.join(relative_script);
     if !script.is_file() {
         return Err(format!("ENGINE_SCRIPT_MISSING: {}", script.display()));
@@ -1132,6 +1144,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn verbatim_windows_prefix_is_removed_for_powershell() {
+        assert_eq!(
+            plain_windows_path(Path::new(r"\\?\C:\dev\assemblelink")),
+            PathBuf::from(r"C:\dev\assemblelink")
+        );
+        assert_eq!(
+            plain_windows_path(Path::new(r"C:\dev\assemblelink")),
+            PathBuf::from(r"C:\dev\assemblelink")
+        );
+        assert_eq!(
+            plain_windows_path(Path::new(r"\\?\UNC\server\share")),
+            PathBuf::from(r"\\?\UNC\server\share")
+        );
+    }
     #[test]
     fn trusted_runtime_replaces_tampered_engine_and_catalog() {
         let base =
