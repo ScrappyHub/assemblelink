@@ -58,3 +58,7 @@ The browser preview is intentionally read-only. Scan, profile, and installation 
 - Installed builds keep mutable state under the current user's application-data directory.
 
 Do not commit generated workstation state, inventories, logs, or receipts.
+
+## License
+
+AssembleLink is open source under the [MIT License](LICENSE).

@@ -3,6 +3,7 @@ name = "assemblelink"
 version = "0.1.0"
 description = "Local-first Atlas Systems workstation bootstrap"
 authors = ["Atlas Systems"]
+license = "MIT"
 edition = "2021"
 
 [build-dependencies]
