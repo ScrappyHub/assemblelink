@@ -1,11 +1,11 @@
 # Claude Code Instructions — AssembleLink
 
 <!-- ATLAS_SERVICE_MAP_BEGIN -->
-## Atlas Systems ecosystem context
+## Constellation ecosystem context
 
-This repository is the `assemblelink` service inside the Atlas Systems deterministic software ecosystem.
+This repository is the `assemblelink` service inside the Constellation deterministic software ecosystem.
 
-**Canonical role:** Local-first workstation orchestration and capability-reconstruction platform.
+**Canonical role:** Sets up new developer machines with the CLI and software toolbelts they need: local-first workstation orchestration and toolchain reconstruction.
 
 **Ecosystem authority:** Constellation (`constellation`). The registry, service map, agent policy and shared invariants below are published by Constellation.
 

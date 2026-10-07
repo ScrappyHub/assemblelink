@@ -11,12 +11,11 @@
 
 ## Role
 
-Local-first workstation orchestration and capability-reconstruction platform.
+Sets up new developer machines with the CLI and software toolbelts they need: local-first workstation orchestration and toolchain reconstruction.
 
 ## This service owns
 
 - Workstation intelligence
-- Capability inventory
 - Toolchain discovery
 - Governed software acquisition
 - Repository requirement analysis
@@ -25,6 +24,7 @@ Local-first workstation orchestration and capability-reconstruction platform.
 
 ## This service does not own
 
+- Software capability inventory and repository MRI (contract-registry)
 - Repository governance
 - Runtime monitoring
 - Application deployment policy
