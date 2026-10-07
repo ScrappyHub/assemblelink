@@ -1,0 +1,7 @@
+{
+  "toolkit": "game-design/core",
+  "label": "Game Design Core",
+  "tools": [
+    { "id": "blender", "name": "Blender", "command": "blender", "install_hint": "winget install BlenderFoundation.Blender" }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "toolkit": "cybersecurity/core",
+  "label": "Cybersecurity Core",
+  "tools": [
+    { "id": "nmap", "name": "Nmap", "command": "nmap", "install_hint": "winget install Insecure.Nmap" },
+    { "id": "wireshark", "name": "Wireshark", "command": "tshark", "install_hint": "winget install WiresharkFoundation.Wireshark" }
+  ]
+}

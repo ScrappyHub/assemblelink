@@ -1,0 +1,23 @@
+{
+  "name": "assemblelink-ui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/cli": "2.11.2",
+    "@vitejs/plugin-react": "6.0.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "vite": "8.2.0"
+  }
+}

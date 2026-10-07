@@ -1,0 +1,30 @@
+{
+    "targetclass":  "cybersecurity",
+    "label":  "Cybersecurity",
+    "tools":  [
+                  {
+                      "id":  "git",
+                      "name":  "Git",
+                      "command":  "git",
+                      "install_hint":  "winget install Git.Git"
+                  },
+                  {
+                      "id":  "python",
+                      "name":  "Python",
+                      "command":  "python",
+                      "install_hint":  "winget install Python.Python.3.12"
+                  },
+                  {
+                      "id":  "nmap",
+                      "name":  "Nmap",
+                      "command":  "nmap",
+                      "install_hint":  "winget install Insecure.Nmap"
+                  },
+                  {
+                      "id":  "wireshark",
+                      "name":  "Wireshark",
+                      "command":  "tshark",
+                      "install_hint":  "winget install WiresharkFoundation.Wireshark"
+                  }
+              ]
+}

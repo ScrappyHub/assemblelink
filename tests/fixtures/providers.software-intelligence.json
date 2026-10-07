@@ -1,0 +1,7 @@
+{
+  "git":{"status":"ok","installed_version":"2.50.0","available_version":"2.51.0","freshness":"fixture"},
+  "vscode":{"status":"ok","installed_version":"1.100.0","available_version":"1.100.0","freshness":"fixture"},
+  "nodejs-lts":{"status":"provider_unavailable","installed_version":"","available_version":"","freshness":"unknown"},
+  "ghidra":{"status":"stale_cache","installed_version":"11.3","available_version":"11.4","freshness":"stale"},
+  "7zip":{"status":"malformed_response","installed_version":"24.0","available_version":"","freshness":"unknown"}
+}

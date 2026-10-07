@@ -1,0 +1,18 @@
+{
+  "schema": "assemblelink.clean_machine_matrix.v1",
+  "required_evidence": ["installer_sha256", "installer_sha256_sidecar", "authenticode_valid", "trusted_timestamp_present", "environment_match", "desktop_runtime_startup", "workstation_assurance_receipt_sha256", "post_install_identity_verification", "uninstall_result", "user_evidence_preserved"],
+  "cases": [
+    {"id":"win11-standard-clean-online","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"present","network":"online","machine":"clean","expected":"install_and_inventory"},
+    {"id":"win11-admin-partial-online","os":"Windows 11 23H2+","arch":"x64","user":"administrator","winget":"present","network":"online","machine":"partial","expected":"skip_current_and_update_old"},
+    {"id":"win10-standard-clean-online","os":"Windows 10 22H2","arch":"x64","user":"standard","winget":"present","network":"online","machine":"clean","expected":"install_and_inventory"},
+    {"id":"winget-missing","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"missing","network":"online","machine":"clean","expected":"explicit_package_manager_unavailable"},
+    {"id":"offline-with-cache","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"present","network":"offline","machine":"partial","expected":"stale_or_cached_not_current"},
+    {"id":"offline-no-cache","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"present","network":"offline","machine":"clean","expected":"provider_unavailable"},
+    {"id":"provider-rate-limited","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"present","network":"rate_limited","machine":"partial","expected":"provider_unavailable_not_current"},
+    {"id":"interrupted-install","os":"Windows 11 23H2+","arch":"x64","user":"administrator","winget":"present","network":"online","machine":"clean","expected":"durable_partial_receipt_and_safe_retry"},
+    {"id":"reboot-required","os":"Windows 11 23H2+","arch":"x64","user":"administrator","winget":"present","network":"online","machine":"clean","expected":"reboot_visible_and_resume_safe"},
+    {"id":"tampered-plan","os":"Windows 11 23H2+","arch":"x64","user":"administrator","winget":"present","network":"online","machine":"clean","expected":"reject_before_execution"},
+    {"id":"invalid-signature","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"present","network":"online","machine":"clean","expected":"release_gate_failure"},
+    {"id":"uninstall-cleanup","os":"Windows 11 23H2+","arch":"x64","user":"standard","winget":"present","network":"online","machine":"clean","expected":"app_removed_user_evidence_preserved"}
+  ]
+}

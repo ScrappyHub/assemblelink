@@ -1,0 +1,31 @@
+{
+    "schema":  "assemblelink.capability.v1",
+    "id":  "software-development",
+    "name":  "Software Development",
+    "icon":  "code",
+    "required":  [
+                     "Git",
+                     "VS Code",
+                     "Python",
+                     "Node.js"
+                 ],
+    "recommended":  [
+                        "Visual Studio",
+                        "JetBrains",
+                        "Docker",
+                        "Postman",
+                        "GitHub CLI",
+                        "Go Programming",
+                        "Rust"
+                    ],
+    "optional":  [
+                     "Android Studio",
+                     "TablePlus",
+                     "PostgreSQL"
+                 ],
+    "actions":  [
+                    "Map language SDK versions",
+                    "Check package managers",
+                    "Build dev profile export"
+                ]
+}

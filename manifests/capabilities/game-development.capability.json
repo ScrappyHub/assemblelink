@@ -1,0 +1,28 @@
+{
+    "schema":  "assemblelink.capability.v1",
+    "id":  "game-development",
+    "name":  "Game Development",
+    "icon":  "gamepad",
+    "required":  [
+                     "Git",
+                     "Visual Studio",
+                     "Blender"
+                 ],
+    "recommended":  [
+                        "Unity",
+                        "Unreal",
+                        "Godot",
+                        "GameMaker",
+                        "Aseprite",
+                        "FMOD"
+                    ],
+    "optional":  [
+                     "RPG Maker",
+                     "Android Studio"
+                 ],
+    "actions":  [
+                    "Map Unity modules",
+                    "Map Unreal SDKs",
+                    "Check Visual Studio workloads"
+                ]
+}

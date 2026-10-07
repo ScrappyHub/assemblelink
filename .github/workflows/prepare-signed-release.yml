@@ -1,0 +1,148 @@
+name: Prepare signed Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer matching the application configuration
+        required: true
+        default: 0.1.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assemblelink-signed-release
+  cancel-in-progress: false
+
+jobs:
+  windows-release-draft:
+    environment: release-signing
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate release input
+        shell: pwsh
+        run: |
+          if ('${{ inputs.version }}' -notmatch '^\d+\.\d+\.\d+$') { throw 'VERSION_MUST_BE_SEMVER' }
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Test UI
+        working-directory: ui
+        run: npm test
+
+      - name: Audit UI dependencies
+        working-directory: ui
+        run: npm audit --audit-level=high
+
+      - name: Test native desktop boundary
+        working-directory: ui/src-tauri
+        run: cargo test --locked
+
+      - name: Enforce native formatting and lint policy
+        working-directory: ui/src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Audit Rust dependency advisories
+        working-directory: ui/src-tauri
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+      - name: Test PowerShell engine
+        shell: pwsh
+        run: |
+          Get-ChildItem tests -Filter 'test_*.ps1' -File | Sort-Object Name | ForEach-Object {
+            $global:LASTEXITCODE = 0
+            & $_.FullName -RepoRoot $env:GITHUB_WORKSPACE
+            if (-not $?) { throw "TEST_FAILED: $($_.Name)" }
+            $global:LASTEXITCODE = 0
+          }
+          exit 0
+
+      - name: Validate manifests and source policy
+        shell: pwsh
+        run: |
+          & scripts/commands/al_validate_manifests_v1.ps1 -RepoRoot $env:GITHUB_WORKSPACE
+          Get-ChildItem scripts/audit -Filter '*.ps1' -File |
+            Where-Object { $_.Name -notin @('al_capability_status_audit_v1.ps1','al_mission_console_audit_v1.ps1','al_runtime_smoke_v1.ps1','al_workstation_proof_v1.ps1') } |
+            ForEach-Object { & $_.FullName -RepoRoot $env:GITHUB_WORKSPACE; if (-not $?) { throw "AUDIT_FAILED: $($_.Name)" } }
+
+      - name: Verify exact Winget catalog identities
+        shell: pwsh
+        run: ./scripts/audit/al_catalog_verification_v1.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Live
+
+      - name: Import Windows signing certificate
+        id: certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) { throw 'WINDOWS_CERTIFICATE_SECRET_REQUIRED' }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) { throw 'WINDOWS_CERTIFICATE_PASSWORD_SECRET_REQUIRED' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'assemblelink-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if ($null -eq $certificate -or -not $certificate.HasPrivateKey) { throw 'SIGNING_CERTIFICATE_IMPORT_FAILED' }
+          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+          Remove-Item -LiteralPath $pfx -Force
+
+      - name: Create ephemeral signing configuration
+        id: signing_config
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'assemblelink.release-signing.conf.json'
+          $config = @{ bundle = @{ windows = @{ certificateThumbprint = '${{ steps.certificate.outputs.thumbprint }}'; digestAlgorithm = 'sha256'; timestampUrl = 'https://timestamp.digicert.com' } } }
+          [IO.File]::WriteAllText($path, ($config | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
+          "path=$path" >> $env:GITHUB_OUTPUT
+
+      - name: Build signed offline-capable installer
+        working-directory: ui
+        run: npm run tauri -- build --config "${{ steps.signing_config.outputs.path }}"
+
+      - name: Verify signatures and timestamps
+        shell: pwsh
+        run: |
+          & scripts/release/verify_release_artifact_v1.ps1 -ArtifactPath ui/src-tauri/target/release/assemblelink.exe
+          & scripts/release/verify_release_artifact_v1.ps1 -ArtifactPath ui/src-tauri/target/release/bundle/nsis/AssembleLink_${{ inputs.version }}_x64-setup.exe
+
+      - name: Build matrix status and stage signed draft
+        shell: pwsh
+        run: |
+          & scripts/audit/al_clean_machine_matrix_audit_v1.ps1 -RepoRoot $env:GITHUB_WORKSPACE
+          $installer = "ui/src-tauri/target/release/bundle/nsis/AssembleLink_${{ inputs.version }}_x64-setup.exe"
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$installer.sha256", "$hash  $([IO.Path]::GetFileName($installer))`n", (New-Object Text.UTF8Encoding($false)))
+          & scripts/release/stage_release_v1.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Version '${{ inputs.version }}' -InstallerPath $installer -Draft
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AssembleLink-${{ inputs.version }}-windows-x64-signed-draft
+          path: release/out/v${{ inputs.version }}/*
+          if-no-files-found: error
+
+      - name: Create GitHub draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'v${{ inputs.version }}'
+          gh release create $tag release/out/v${{ inputs.version }}/* --draft --target $env:GITHUB_SHA --title "AssembleLink $tag" --notes-file release/RELEASE_NOTES_v${{ inputs.version }}.md

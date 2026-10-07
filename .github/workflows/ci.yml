@@ -1,0 +1,78 @@
+name: Validate AssembleLink
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+        working-directory: ui
+      - run: npm test
+        working-directory: ui
+      - run: npm audit --audit-level=high
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - run: cargo test --locked
+        working-directory: ui/src-tauri
+      - run: cargo fmt --all -- --check
+        working-directory: ui/src-tauri
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: ui/src-tauri
+      - name: Audit Rust dependency advisories
+        shell: pwsh
+        working-directory: ui/src-tauri
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+      - name: Test deterministic engine and threat cases
+        shell: pwsh
+        run: |
+          Get-ChildItem tests -Filter 'test_*.ps1' -File | Sort-Object Name | ForEach-Object {
+            $global:LASTEXITCODE = 0
+            & $_.FullName -RepoRoot $PWD
+            if (-not $?) { throw "TEST_FAILED: $($_.Name)" }
+            $global:LASTEXITCODE = 0
+          }
+          exit 0
+      - name: Validate manifests
+        shell: pwsh
+        run: ./scripts/commands/al_validate_manifests_v1.ps1 -RepoRoot $PWD
+      - name: Run non-interactive source audits
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/audit -Filter '*.ps1' -File |
+            Where-Object { $_.Name -notin @(
+              'al_capability_status_audit_v1.ps1',
+              'al_mission_console_audit_v1.ps1',
+              'al_runtime_smoke_v1.ps1',
+              'al_workstation_proof_v1.ps1'
+            ) } |
+            ForEach-Object {
+              $global:LASTEXITCODE = 0
+              & $_.FullName -RepoRoot $PWD
+              if (-not $?) { throw "AUDIT_FAILED: $($_.Name)" }
+              $global:LASTEXITCODE = 0
+            }
+          exit 0
+
+  catalog-live:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify every exact package identity against Winget
+        shell: pwsh
+        run: ./scripts/audit/al_catalog_verification_v1.ps1 -RepoRoot $PWD -Live

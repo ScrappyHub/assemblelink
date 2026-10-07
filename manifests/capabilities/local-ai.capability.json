@@ -1,0 +1,26 @@
+{
+    "schema":  "assemblelink.capability.v1",
+    "id":  "local-ai",
+    "name":  "Local AI / ML",
+    "icon":  "brain",
+    "required":  [
+                     "Python"
+                 ],
+    "recommended":  [
+                        "Ollama",
+                        "Docker",
+                        "NVIDIA"
+                    ],
+    "optional":  [
+                     "PostgreSQL",
+                     "VS Code",
+                     "CUDA",
+                     "PyTorch"
+                 ],
+    "actions":  [
+                    "Map CUDA / GPU AI stack",
+                    "Check model runtime folders",
+                    "Add PyTorch CUDA rule",
+                    "Estimate local model readiness from VRAM"
+                ]
+}

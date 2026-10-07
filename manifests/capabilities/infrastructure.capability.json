@@ -1,0 +1,27 @@
+{
+    "schema":  "assemblelink.capability.v1",
+    "id":  "infrastructure",
+    "name":  "Infrastructure / Homelab",
+    "icon":  "server",
+    "required":  [
+                     "PowerShell",
+                     "Docker"
+                 ],
+    "recommended":  [
+                        "Windows Subsystem for Linux",
+                        "VirtualBox",
+                        "PostgreSQL",
+                        "PuTTY",
+                        "WezTerm",
+                        "Nushell"
+                    ],
+    "optional":  [
+                     "TablePlus",
+                     "SQL Server"
+                 ],
+    "actions":  [
+                    "Map local services",
+                    "Check Docker backend",
+                    "Create homelab export profile"
+                ]
+}
