@@ -342,3 +342,12 @@ test("self-uninstall shows a waving, head-spinning goodbye overlay", async () =>
   assert.match(css, /@keyframes byeSpin/);
   assert.match(css, /@keyframes byeWave/);
 });
+
+test("engines are time-limited and the toolkit refresh reuses the cached scan", async () => {
+  const rust = await readFile(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+  assert.match(rust, /fn engine_time_limit/);
+  assert.match(rust, /ENGINE_TIMEOUT/);
+  assert.match(rust, /al_setup_execute_v1\.ps1" => None/);
+  const fn = source.slice(source.indexOf("async function updateToolkit"), source.indexOf("const actions={"));
+  assert.doesNotMatch(fn, /refreshSoftwareIntelligence\(true\)/);
+});
