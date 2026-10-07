@@ -2,7 +2,7 @@
 // Poses are data attributes so CSS owns the (very slow) motion and reduced-motion can switch it off.
 // "carry" is the panda plodding along with a bamboo bundle strapped to its back while tools install.
 
-const POSES = new Set(["idle", "scan", "think", "happy", "sad", "carry"]);
+const POSES = new Set(["idle", "scan", "think", "happy", "sad", "carry", "wave"]);
 const INK = "#1b2130";
 
 const BAMBOO_BUNDLE = `
@@ -44,7 +44,7 @@ function contentEye(cx, cy) {
 export function pandaSvg(pose = "idle", label = "AssembleLink panda guide") {
   const p = POSES.has(pose) ? pose : "idle";
   const carry = p === "carry";
-  const happy = p === "happy";
+  const happy = p === "happy" || p === "wave";
   const eyes = happy
     ? contentEye(59, 67) + contentEye(101, 67)
     : p === "scan"
@@ -66,7 +66,9 @@ export function pandaSvg(pose = "idle", label = "AssembleLink panda guide") {
   const sprig = p === "idle" || carry || p === "think"
     ? `<g class="sprig" aria-hidden="true"><path d="M84 87 L113 79" stroke="#4ade80" stroke-width="3.2" stroke-linecap="round"/><ellipse cx="116" cy="78" rx="8" ry="3.2" transform="rotate(-18 116 78)" fill="#86efac"/></g>`
     : "";
-  const rightArm = p === "scan"
+  const rightArm = p === "wave"
+    ? `<g class="arm r wave"><ellipse cx="130" cy="88" rx="10" ry="20" transform="rotate(-20 130 88)" fill="${INK}"/></g>`
+    : p === "scan"
     ? `<g class="arm r raised"><ellipse cx="124" cy="104" rx="10" ry="19" transform="rotate(-38 124 104)" fill="${INK}"/></g><g class="lens"><circle cx="138" cy="86" r="12" fill="rgba(125,211,252,.2)" stroke="#7dd3fc" stroke-width="3.6"/><path d="M146 95 L154 105" stroke="#7dd3fc" stroke-width="4.5" stroke-linecap="round"/></g>`
     : `<g class="arm r"><ellipse cx="108" cy="116" rx="10" ry="20" transform="rotate(34 108 116)" fill="${INK}"/></g>`;
   const extra = {

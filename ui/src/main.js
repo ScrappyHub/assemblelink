@@ -1,26 +1,19 @@
-let workstationHealth = null;
 import "./style.css";
 import {pandaSvg} from "./panda.js";
+import {roomSvg, readerSvg, grassSvg} from "./scenes.js";
+import {shortVersion, versionState, versionSummary, formatWhen, lastInstallByWingetId} from "./lib.js";
+
+let workstationHealth = null;
 
 let graph = null;
-let capabilityStatusIndex = null;
-let missionConsole = null;
 let systemProfile = null;
 let systemProfileError = "";
 let driverProfile = null;
 let driverLoadError = "";
 let softwareInventory = [];
 let softwareIntelligence = null;
-let softwareFilter = "all";
-let softwareKindFilter = "all";
-let softwareSearch = "";
-let selectedSoftwareIndex = null;
 let errorText = "";
-let activeTab = "home";
-let sidebarContext = "overview";
 let showTechnical = false;
-let selectedCapabilityId = null;
-let activeHomeAction = null;
 let operationMessage = "";
 let setupData = null;
 let setupLoadError = "";
@@ -98,6 +91,13 @@ async function loadReceipts(){
     receiptIndex=null;
     receiptLoadError=String(err);
   }
+}
+
+let installHistory=null;
+let installHistoryError="";
+async function loadInstallHistory(){
+  try{ installHistory=sanitizeStateValue(JSON.parse(await invokeDesktop("get_install_history"))); installHistoryError=""; }
+  catch(err){ installHistory=null; installHistoryError=String(err); }
 }
 
 async function loadWorkstationAssurance(){
@@ -185,274 +185,6 @@ function formatAllocation(mib){
   return mib>=1024?`${(mib/1024).toFixed(mib%1024===0?0:1)} GB`:`${mib} MB`;
 }
 
-function renderMachineProfile(){
-  const estimate=selectedAllocationEstimate();
-  const limitMib=maxAllocationGb*1024;
-  const freeGb=Number(systemProfile?.storage?.free_gb);
-  const overLimit=estimate.complete&&estimate.mib>limitMib;
-  const overFree=Number.isFinite(freeGb)&&estimate.mib>freeGb*1024;
-  return `<section class="machinePlanner compactPlanner" aria-labelledby="machinePlannerTitle">
-    <h3 id="machinePlannerTitle" class="plannerTitle">What are you setting up?</h3>
-    <div class="plannerRow">
-      <div class="machineTypeChoices" role="radiogroup" aria-label="Machine type">
-        <label class="${machineType==="desktop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="desktop" ${machineType==="desktop"?"checked":""}><b>Desktop</b><span>Room for larger SDKs, containers, and local AI.</span></label>
-        <label class="${machineType==="laptop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="laptop" ${machineType==="laptop"?"checked":""}><b>Laptop</b><span>Keeps the footprint tighter for portable storage.</span></label>
-      </div>
-      <div class="allocationControl">
-        <label for="maxAllocationGb"><b>Maximum planned allocation</b><span>Storage this plan may use</span></label>
-        <div><input id="maxAllocationGb" type="number" min="5" max="2048" step="1" value="${escapeHtml(maxAllocationGb)}"><span>GB</span></div>
-      </div>
-      <div class="allocationReadout ${overLimit||overFree?"overLimit":""}">
-        <div><span>Selected estimate</span><b>${estimate.itemCount?formatAllocation(estimate.mib):"Choose tools"}</b><small>${estimate.itemCount} resolved tools</small></div>
-        <div><span>Your ceiling</span><b>${escapeHtml(maxAllocationGb)} GB</b><small>${Number.isFinite(freeGb)?`${escapeHtml(freeGb)} GB currently free`:"Live free space unavailable"}</small></div>
-      </div>
-    </div>
-    ${overLimit?`<p class="allocationWarning" role="alert">This selection is about ${formatAllocation(estimate.mib-limitMib)} over your chosen limit. Remove tools or raise the ceiling.</p>`:""}
-    ${!overLimit&&overFree?`<p class="allocationWarning" role="alert">This estimate is larger than the currently reported free storage.</p>`:""}
-    <p class="allocationLimit">Planning estimate only. Projects, package caches, containers, virtual machines, AI models, games, and later SDK downloads are not included.</p>
-  </section>`;
-}
-
-function pandaMood(){
-  const total=Number(setupProgress?.total)||setupPlan?.item_count||0;
-  const done=Math.min(Number(setupProgress?.completed)||0,total);
-  const count=selectedToolkitIds.size+selectedSoftwareIds.size;
-  if(setupRunning){return {pose:"carry",title:"Carrying your tools over",text:`${done} of ${total} done. Keep me open; I save progress after every tool.`};}
-  if(errorText||(!setupData&&setupLoadError)){return {pose:"sad",title:"I could not start",text:"My trusted runtime is not answering. Retry, and open technical details if it keeps happening."};}
-  if(setupResult){return {pose:"happy",title:"All done",text:"Here is exactly what happened for every tool."};}
-  if(setupPlan){return {pose:"think",title:"Your plan is ready",text:"Check the list below. I will not install anything until you approve it."};}
-  if(softwareScanError){return {pose:"sad",title:"I could not finish looking around",text:"The software scan hit a problem. You can still pick tools, or ask me to scan again."};}
-  if(!softwareIntelligence){return {pose:"scan",title:"Looking around your computer",text:"Reading installed software, checking Winget, and matching the approved catalog."};}
-  const summary=softwareIntelligence.summary||{};
-  if(sidebarContext==="overview"){
-    const updates=Number(summary.updates_available)||0;
-    return {pose:"happy",title:`I found ${Number(summary.detected)||0} things on this computer`,text:`${Number(summary.catalog_matched)||0} are tools I can manage${updates?`, and ${updates} ${updates===1?"has":"have"} an update ready`:""}. What shall we do?`};
-  }
-  if(count>0){return {pose:"happy",title:`${count} ${count===1?"pick":"picks"} so far`,text:"Looking good. Review the plan when you are ready; nothing installs yet."};}
-  const idle={
-    setup:["Let us build your computer","Tell me the work you do, pick a toolkit, and I will gather every tool for it."],
-    browse:["Pick tools one by one","Search the approved catalog and tick what you want."],
-    update:["Let us check your tools","I will compare what you have with approved sources."],
-    repository:["Show me a project","Point me at a folder. I read its manifests and never run them."],
-    restore:["Restore a setup","Give me a verified blueprint and I will rebuild from it."]
-  };
-  const [title,text]=idle[setupMode]||idle.setup;
-  return {pose:"idle",title,text};
-}
-
-function renderPandaGuide(extra=""){
-  const mood=pandaMood();
-  return `<section class="pandaGuide" data-pose="${mood.pose}" aria-live="polite"><div class="pandaStage">${pandaSvg(mood.pose)}</div><div class="pandaSpeech"><b>${escapeHtml(mood.title)}</b><p>${escapeHtml(mood.text)}</p>${mood.pose==="scan"?`<div class="scanLine" aria-hidden="true"><span></span></div>`:""}${extra}</div></section>`;
-}
-
-function renderScanCard(){
-  if(softwareScanError){
-    return `<section class="scanCard scanFailed"><div><b>The software scan could not finish</b><p>Nothing was changed. You can still set up tools, or try the scan again.</p></div><button id="retryScan" class="secondaryAction">Scan again</button><details><summary>Technical details</summary><pre>${escapeHtml(softwareScanError)}</pre></details></section>`;
-  }
-  return "";
-}
-
-function renderReturningSummary(){
-  const total=Number(receiptIndex?.summary?.total)||0;
-  const newest=(receiptIndex?.items||[]).map(x=>Number(x.modified_unix)||0).sort((a,b)=>b-a)[0];
-  const scanned=softwareIntelligence?.observed_utc?new Date(softwareIntelligence.observed_utc).toLocaleString():"";
-  const parts=[scanned?`Scanned ${scanned}`:"",total?`${total} verified ${total===1?"receipt":"receipts"} on this computer`:"",newest?`Last setup record ${new Date(newest*1000).toLocaleDateString()}`:""].filter(Boolean);
-  return parts.length?`<p class="returningLine">${parts.map(escapeHtml).join(" · ")}</p>`:"";
-}
-
-function runCountUps(){
-  const reduce=window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-  document.querySelectorAll("[data-countup]").forEach(node=>{
-    const target=Number(node.getAttribute("data-countup"))||0;
-    const key=`${node.getAttribute("data-count-key")||"count"}:${target}`;
-    if(reduce||countedKeys.has(key)||target===0){node.textContent=String(target);countedKeys.add(key);return;}
-    countedKeys.add(key);
-    const start=performance.now();
-    const step=now=>{
-      const t=Math.min(1,(now-start)/700);
-      node.textContent=String(Math.round(target*(1-Math.pow(1-t,3))));
-      if(t<1){requestAnimationFrame(step);}
-    };
-    node.textContent="0";
-    requestAnimationFrame(step);
-  });
-}
-
-function renderSetupConsole(){
-  const kits=setupData?.toolkits?.toolkits || [];
-  const items=setupData?.catalog?.items || [];
-  const categories=["all",...new Set(items.map(x=>x.category||"other"))];
-  const visibleItems=items.filter(x=>catalogCategory==="all"||(x.category||"other")===catalogCategory).filter(x=>`${x.name} ${x.category||""} ${(x.capabilities||[]).join(" ")}`.toLowerCase().includes(catalogSearch.toLowerCase()));
-  if(!setupData){ return `<section class="panel"><h2>Set up this computer</h2><p>The trusted desktop runtime is unavailable, so machine-changing actions are disabled.</p><button id="retryRuntime">Retry runtime</button><p role="status">${escapeHtml(setupLoadError)}</p></section>`; }
-  const planItems=setupPlan?.items || [];
-  const installedByCatalogId=new Map((softwareIntelligence?.items||[]).filter(x=>x.installed&&x.catalog_id).map(x=>[x.catalog_id,x]));
-  const selectedCount=selectedToolkitIds.size+selectedSoftwareIds.size;
-  const allocationEstimate=selectedAllocationEstimate();
-  const allocationValid=Number.isInteger(maxAllocationGb)&&maxAllocationGb>=5&&maxAllocationGb<=2048&&allocationEstimate.complete&&allocationEstimate.mib<=maxAllocationGb*1024;
-  const canReview=selectedCount>0&&allocationValid;
-  return `
-    <section class="panel setupConsole">
-      <ol class="setupSteps" aria-label="Setup process">
-        <li class="active"><b>1</b><span>Choose tools</span></li>
-        <li class="${setupPlan?"active":""}"><b>2</b><span>Review plan</span></li>
-        <li class="${setupRunning||setupResult?"active":""}"><b>3</b><span>Approve &amp; install</span></li>
-      </ol>
-      ${setupPlan?`<div class="reviewBar"><span><b>${setupRunning?"Installing.":setupResult?"Finished.":"Selection locked in."}</b> ${setupRunning?"Keep AssembleLink open; each tool is verified after it installs.":setupResult?"Every outcome is recorded in a receipt.":"Review the plan below; nothing is installed until you approve."}</span>${setupRunning?"":`<button id="editSelection" class="secondaryAction">← Change selection</button>`}</div>`:`
-      ${renderSetupRecovery()}
-      <div class="modeTabs" role="tablist" aria-label="Setup mode">
-        ${[["setup","Set Up This Computer","Install complete curated toolkits."],["browse","Browse All Software","Build a custom toolkit."],["update","Update My Tools","Find approved installed-tool upgrades."],["repository","Analyze a Project","Detect runtimes and toolchains from repository manifests."],["restore","Restore Previous Setup","Load a verified AssembleLink blueprint."]].map(([mode,label,hint])=>`<button role="tab" aria-selected="${setupMode===mode}" class="${setupMode===mode?"active":""}" data-setup-mode="${mode}" title="${hint}">${label}</button>`).join("")}
-      </div>
-      ${!['update','repository'].includes(setupMode)?renderMachineProfile():""}
-      ${setupMode==="setup"?`<h3 class="sectionTitle">Choose a job toolkit</h3>${renderToolkitGroups(kits)}`:""}
-      ${setupMode==="browse"?`<h3>Approved software and CLI catalog</h3><div class="catalogToolbar"><label><span>Search tools</span><input id="catalogSearch" type="search" placeholder="Try Git, Python, Docker, or security" value="${escapeHtml(catalogSearch)}"></label><label><span>Category</span><select id="catalogCategorySelect">${categories.sort().map(c=>`<option value="${escapeHtml(c)}" ${catalogCategory===c?"selected":""}>${escapeHtml(c==="all"?"All categories":c.replaceAll("-"," "))}</option>`).join("")}</select></label></div><p class="catalogCount">${visibleItems.length} of ${items.length} trusted catalog entries shown</p><div class="setupChoices softwareChoices">${visibleItems.map(x=>{const installed=installedByCatalogId.get(x.id);return `<label class="${installed?"isInstalled":""}"><input type="checkbox" data-software-id="${escapeHtml(x.id)}" ${selectedSoftwareIds.has(x.id)?"checked":""}><b>${escapeHtml(x.name)}${installed?` <em class="installedMark">Installed${installed.installed_version?` · ${escapeHtml(installed.installed_version)}`:""}</em>`:""}</b><span>${escapeHtml((x.category||x.capabilities?.[0]||"software").replaceAll("-"," "))} · ${escapeHtml((x.license||"license review").replaceAll("_"," "))}</span><small>${escapeHtml(x.winget_id||"Manual review")}</small></label>`;}).join("")}</div>`:""}
-      ${setupMode==="repository"?renderRepositoryAnalyzer():setupMode==="restore"?`<h3>Restore a verified blueprint</h3><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json"><button id="importBlueprint" class="primaryAction">Validate and review blueprint</button>`:setupMode==="update"?`<h3>Check approved tools for updates</h3><p>AssembleLink asks Winget about exact approved package identities. Review is still required before updating.</p><button id="scanUpdates" class="primaryAction">Check for updates</button>`:`<div class="selectionSummary"><span><b>${selectedCount}</b> ${selectedCount===1?"selection":"selections"} · ${allocationEstimate.itemCount?`${formatAllocation(allocationEstimate.mib)} estimated`:"no footprint yet"}</span><button id="reviewSetup" class="primaryAction" ${canReview?"":"disabled"}>Review download &amp; setup plan</button></div>${selectedCount===0?`<p class="selectionHint">Choose at least one toolkit or software item to continue.</p>`:!allocationValid?`<p class="selectionHint">Adjust the storage ceiling before continuing.</p>`:""}`}
-`}
-      ${setupPlan?`<button id="exportBlueprint" class="secondaryAction">Export this selection as a blueprint</button>`:""}
-      <p role="status">${escapeHtml(operationMessage)}</p>
-    </section>
-    ${setupPlan&&!setupRunning&&!setupResult?`<section class="panel planPanel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${setupPlan.machine_profile?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} estimated of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>${setupPlan.profile_guidance?.caution_count?`<p class="allocationWarning">${escapeHtml(setupPlan.profile_guidance.caution_count)} tools may have substantial storage, battery, memory, GPU, or thermal impact on a laptop.</p>`:""}`:""}${table(["Tool","Estimated size","Machine fit","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",x.profile_advisory==="review_laptop_resource_impact"?"Review laptop impact":"Compatible",x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
-    ${renderSetupProgress()}
-    ${setupResult?renderSetupResult():""}
-  `;
-}
-
-function renderSetupRecovery(){
-  if(!setupRecovery){return setupRecoveryError?`<p role="status">Interrupted-run inspection unavailable: ${escapeHtml(setupRecoveryError)}</p>`:"";}
-  const completed=Number(setupRecovery.progress?.completed)||0;
-  const total=Number(setupRecovery.progress?.total)||0;
-  return `<aside class="recoveryNotice">
-    <b>Interrupted setup found</b>
-    <span>${completed} of ${total} tools were recorded before the run stopped. Completed automatic tools will be independently checked before they are skipped.</span>
-    <button id="reviewRecovery" class="secondaryAction">Review and resume</button>
-  </aside>`;
-}
-
-function renderSetupProgress(){
-  if(!setupProgress||setupProgress.plan_id!==setupPlan?.plan_id||(!setupRunning&&setupProgress.status==="idle")){return "";}
-  const total=Number(setupProgress.total)||setupPlan?.item_count||0;
-  const completed=Math.min(Number(setupProgress.completed)||0,total);
-  const rows=Array.isArray(setupProgress.results)?setupProgress.results:[];
-  const status=setupProgress.status==="complete"?"Complete":setupRunning?"Running":"Stopped";
-  return `<section class="panel setupProgress" aria-live="polite">
-    <h2>Setup progress</h2>
-    <p><b>${escapeHtml(status)}</b> · ${completed} of ${total} tools finished</p>
-    <div class="carryTrack" style="--pct:${Math.round(completed/Math.max(total,1)*100)}%"><div class="carryFill"></div><div class="carryRunner ${setupRunning?"walking":""}">${pandaSvg(setupProgress.status==="complete"?"happy":setupRunning?"carry":"idle","Panda carrying your tools")}</div></div>
-    <progress class="srOnly" value="${completed}" max="${Math.max(total,1)}">${completed} of ${total}</progress>
-    <p>Keep AssembleLink open. Progress is saved after every tool.</p>
-    ${rows.length?table(["Tool","Outcome","Details"],rows.map(x=>[x.name||x.winget_id||x.id,humanStatus(x.status),x.message])):""}
-  </section>`;
-}
-
-function renderToolkitGroups(kits){
-  const families=[...new Set(kits.map(k=>k.job_family||"Other"))].sort();
-  return families.map(family=>`<section class="toolkitFamily"><h4>${escapeHtml(family)}</h4><div class="setupChoices">${kits.filter(k=>(k.job_family||"Other")===family).map(k=>`<label class="toolkitCard ${selectedToolkitIds.has(k.id)?"isPicked":""}"><input type="checkbox" data-toolkit-id="${escapeHtml(k.id)}" ${selectedToolkitIds.has(k.id)?"checked":""}><i class="tick" aria-hidden="true"></i><b>${escapeHtml(k.name)}</b><span>${escapeHtml(k.description)}</span><small>${k.software_ids.length} reviewed tools</small></label>`).join("")}</div></section>`).join("");
-}
-
-function renderRepositoryAnalyzer(){
-  const result=repositoryAnalysis;
-  return `<section class="repositoryAnalyzer"><h3>Analyze a development project</h3><p>Choose a local project folder. AssembleLink reads supported top-level manifests, maps required runtimes to approved catalog identities, and creates sealed evidence. It never executes project files.</p><div class="repositoryPath"><input id="repositoryPath" value="${escapeHtml(repositoryPath)}" placeholder="C:\\dev\\my-project" autocomplete="off"><button id="analyzeRepository" class="primaryAction">Analyze project</button></div>${result?`<div class="repositoryResult"><h4>${escapeHtml(result.repository?.name||"Project")} · ${escapeHtml(result.summary?.status||"analyzed")}</h4><p>${escapeHtml(result.summary?.recognized_manifests||0)} manifests · ${escapeHtml(result.summary?.resolved_catalog_items||0)} approved tools recommended</p>${(result.requirements||[]).length?table(["Requirement","Evidence","Version","Approved tools"],result.requirements.map(x=>[x.kind,x.evidence,x.version_constraint||"Review latest compatible",(x.catalog_ids||[]).join(", ")])):`<p>No supported top-level manifests were found.</p>`}${(result.recommended_software_ids||[]).length?`<button id="useRepositoryRecommendations" class="primaryAction">Review recommended setup</button>`:""}</div>`:""}</section>`;
-}
-
-function renderSetupResult(){
-  const rows=setupResult?.results||[];
-  return `<section class="panel"><h2>Setup results</h2>${table(["Tool","Outcome","Source verified","Installed verified","Details"],rows.map(x=>[x.name,humanStatus(x.status),x.source_verified?"Yes":"No",x.verified?"Yes":"No",x.message]))}</section>`;
-}
-
-async function loadMissionConsole(){
-  try{
-    const res = await fetch("./state/mission_console.latest.json?ts=" + Date.now());
-    if(!res.ok){ missionConsole = null; return; }
-    const txt = await res.text();
-    if(txt.trim().startsWith("<")){ missionConsole = null; return; }
-    missionConsole = sanitizeStateValue(JSON.parse(txt));
-  }catch(_e){
-    missionConsole = null;
-  }
-}
-
-function renderMissionConsole(){
-  if(!missionConsole){ return ""; }
-  const missions = Array.isArray(missionConsole.missions) ? missionConsole.missions : [];
-  return `
-    <section class="panel missionConsole">
-      <p class="eyebrow">Mission console</p>
-      <h2>Workstation missions</h2>
-      <p class="sectionLead">Finish setup, review installs, or open a workspace.</p>
-      <div class="missionList">
-        ${missions.map(m=>`
-          <article class="missionRow">
-            <div class="missionMain">
-              <h3>${m.title || ""}</h3>
-              <p class="missionImpact">${m.impact || "Developer workstation capability"}</p>
-              <p class="missionNext">${m.next_action || "Open workspace"}</p>
-            </div>
-            <div class="missionScore"><b>${m.completion_percent || 0}%</b><span>${m.status || ""}</span></div>
-            <div class="missionMini"><b>${m.installed_count || 0}</b><span>tracked</span></div>
-            <div class="missionMini"><b>${m.missing_count || 0}</b><span>missing</span></div>
-            <div class="missionMini"><b>${m.recommended_install_count || 0}</b><span>installable</span></div>
-            <div class="missionRowActions">
-              <button class="primaryAction" data-review="${m.capability_id}">${m.missing_count > 0 ? "Finish" : "Open"}</button>
-              <button class="secondaryAction" data-stack-plan="${m.capability_id}">${m.recommended_install_count > 0 ? "Install" : "Plan"}</button>
-            </div>
-          </article>
-        `).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderBlueprintReadiness(){
-  if(!missionConsole?.blueprint_readiness){ return ""; }
-  const b = missionConsole.blueprint_readiness;
-  return `
-    <details class="panel blueprintPanel">
-      <summary>Blueprint readiness</summary>
-      <p class="eyebrow">Rebuild readiness</p>
-      <h2>Blueprint readiness · ${b.readiness_percent || 0}%</h2>
-      <div class="blueprintGrid">
-        <div>
-          <h3>Tracked</h3>
-          <ul>${(b.tracked || []).map(x=>`<li>✓ ${x}</li>`).join("")}</ul>
-        </div>
-        <div>
-          <h3>Missing</h3>
-          <ul>${(b.missing || []).map(x=>`<li>• ${x}</li>`).join("")}</ul>
-        </div>
-      </div>
-      <button class="primaryAction" data-tab-jump="export">${b.next_action || "Open Export"}</button>
-    </details>
-  `;
-}
-
-function renderWorkstationValueStrip(){
-  if(!missionConsole){ return ""; }
-  const ready = (missionConsole.missions || []).filter(m=>m.completion_percent >= 90);
-  return `
-    <section class="panel valueStrip">
-      <p class="eyebrow">Capability summary</p>
-      <h2>This workstation can currently support</h2>
-      <div class="valueTags">
-        ${ready.map(m=>`<span>✓ ${m.capability_name}</span>`).join("")}
-      </div>
-    </section>
-  `;
-}
-async function loadCapabilityStatusIndex(){
-  try{
-    const res = await fetch("./state/capability_status_index.latest.json?ts=" + Date.now());
-    if(!res.ok){ capabilityStatusIndex = null; return; }
-    const txt = await res.text();
-    if(txt.trim().startsWith("<")){ capabilityStatusIndex = null; return; }
-    capabilityStatusIndex = sanitizeStateValue(JSON.parse(txt));
-  }catch(_e){
-    capabilityStatusIndex = null;
-  }
-}
-
-function getCapabilityStatus(id){
-  const caps = Array.isArray(capabilityStatusIndex?.capabilities) ? capabilityStatusIndex.capabilities : [];
-  return caps.find(x => x.capability_id === id) || null;
-}
 async function loadOptionalState(name){
   try{
     const response=await fetch(`./state/${name}?ts=${Date.now()}`);
@@ -473,91 +205,6 @@ async function loadGraph(){
   graph=live.capabilities.length?{...(snapshot||{}),...live,workstation_identity:snapshot?.workstation_identity||live.workstation_identity}:snapshot||live;
   workstationHealth=await loadOptionalState("workstation_health.latest.json");
   if(!softwareIntelligence){const parsed=await loadOptionalState("application_inventory.latest.json");if(parsed){softwareInventory=Array.isArray(parsed)?parsed:[parsed];}}
-}
-
-function nav(id,label){
-  const active=id==="home"?activeTab==="home"&&sidebarContext==="overview":activeTab===id;
-  return `<button class="${active ? "active" : ""}" data-tab="${id}">${label}</button>`;
-}
-function setupNav(mode,label,badge=""){
-  return `<button class="navAction ${activeTab==="home"&&sidebarContext===mode?"active":""}" data-setup-jump="${mode}"><span>${label}</span>${badge?`<b>${escapeHtml(badge)}</b>`:""}</button>`;
-}
-
-function capCard(c){
-  const detected = Array.isArray(c.detected) ? c.detected.slice(0,6) : [];
-  const score=Math.max(0,Math.min(100,Number(c.score)||0));
-  return `
-    <article class="capCard">
-      <div class="capTop">
-        <h2>${escapeHtml(c.name)}</h2>
-        <span>${escapeHtml(c.status)}</span>
-      </div>
-      <div class="scoreRow">
-        <div class="scoreBar"><div style="width:${score}%"></div></div>
-        <b>${score}%</b>
-      </div>
-      <p>${escapeHtml(detected.length ? detected.join(", ") : "Matched through capability rules.")}</p>
-      <div class="capabilityActions">
-        <button class="primaryAction" data-review="${escapeHtml(c.id)}">Open</button>
-        <button class="secondaryAction" data-stack-plan="${escapeHtml(c.id)}">Plan</button>
-      </div>
-    </article>
-  `;
-}
-
-function softwareRecommendations(cap){
-  const map = {
-    "game-development": [
-      ["Unity Hub", "Installed / account gated", "Unity account required", "Official installer or winget"],
-      ["Unreal / Epic", "Installed / account gated", "Epic account required", "Epic Games Launcher"],
-      ["Blender", "Installed", "Free/open-source", "Official installer or winget"],
-      ["Visual Studio Build Tools", "Recommended", "Free", "Microsoft installer"],
-      ["Godot", "Installed", "Free/open-source", "Official installer or winget"],
-      ["Aseprite", "Installed", "Paid/commercial", "Steam or official store"]
-    ],
-    "content-creation": [
-      ["Adobe Creative Cloud", "Installed / subscription", "Adobe subscription required", "Adobe installer"],
-      ["OBS Studio", "Recommended", "Free/open-source", "Official installer or winget"],
-      ["Figma", "Installed / account", "Figma account optional/required by workflow", "Official installer"],
-      ["Canva", "Installed / account", "Account/subscription possible", "Official installer"],
-      ["GIMP", "Installed", "Free/open-source", "Official installer or winget"],
-      ["Audacity", "Installed", "Free/open-source", "Official installer or winget"]
-    ],
-    "cybersecurity": [
-      ["Wireshark", "Installed", "Free/open-source", "Official installer or winget"],
-      ["Nmap", "Installed", "Free/open-source", "Official installer or winget"],
-      ["Burp Suite Community", "Installed", "Free tier / pro available", "PortSwigger installer"],
-      ["Autopsy", "Installed", "Free/open-source", "Official installer"],
-      ["Ghidra", "Recommended", "Free/open-source", "Official NSA GitHub release"],
-      ["x64dbg", "Recommended", "Free/open-source", "Official release"]
-    ],
-    "software-development": [
-      ["Git", "Installed", "Free/open-source", "Official installer or winget"],
-      ["VS Code", "Installed", "Free", "Microsoft installer or winget"],
-      ["Visual Studio", "Installed", "Community/free or licensed", "Visual Studio Installer"],
-      ["JetBrains IDEs", "Installed / licensed", "Account/subscription possible", "JetBrains Toolbox"],
-      ["Docker Desktop", "Installed", "License depends on org size/use", "Docker installer"],
-      ["Python / Node / Go / Rust", "Installed", "Free/open-source", "Official installers"]
-    ],
-    "local-ai": [
-      ["Ollama", "Installed", "Free", "Official installer"],
-      ["Python", "Installed", "Free/open-source", "Official installer"],
-      ["Docker", "Installed", "License depends on org size/use", "Docker installer"],
-      ["NVIDIA CUDA Toolkit", "Recommended", "Free", "NVIDIA installer"],
-      ["PyTorch CUDA", "Recommended", "Free/open-source", "pip/conda"],
-      ["Model cache location", "Needs mapping", "Depends on models", "Local path config"]
-    ],
-    "infrastructure": [
-      ["Docker Desktop", "Installed", "License depends on org size/use", "Docker installer"],
-      ["WSL", "Detected/recommended", "Free", "Windows feature"],
-      ["VirtualBox", "Installed", "Free", "Official installer"],
-      ["PostgreSQL", "Installed", "Free/open-source", "Official installer"],
-      ["PowerShell 7", "Installed", "Free/open-source", "Microsoft installer"],
-      ["TablePlus", "Optional", "Paid/commercial", "Official installer"]
-    ]
-  };
-
-  return map[cap.id] || [];
 }
 
 function humanStatus(status){
@@ -587,278 +234,12 @@ function humanStatus(status){
   };
   return map[status] || status || "";
 }
-function renderCapabilityDetail(){
-  if(!graph){ return renderHome(); }
-
-  const caps = Array.isArray(graph.capabilities) ? graph.capabilities : [];
-  const cap = caps.find(x => x.id === selectedCapabilityId);
-  if(!cap){ return renderHome(); }
-
-  const detected = Array.isArray(cap.detected) ? cap.detected : [];
-  const missing = Array.isArray(cap.missing_required) ? cap.missing_required : [];
-  const recs = softwareRecommendations(cap);
-
-  return `
-    <section class="hero">
-      <div>
-        <button id="backHome">← Back</button>
-        <h1>${cap.name}</h1>
-        <p>This view explains what AssembleLink found, what it recommends, and what install/licensing path each tool needs.</p>
-      </div>
-    </section>
-
-    <section class="summaryStrip">
-      <div><b>${cap.score}%</b><span>readiness</span></div>
-      <div><b>${cap.status}</b><span>status</span></div>
-      <div><b>${detected.length}</b><span>detected examples</span></div>
-      <div><b>${missing.length}</b><span>missing required</span></div>
-    </section>
-
-    ${renderSoftwareDetail()}
-
-    <section class="panel">
-      <h2>Detected software</h2>
-      <div class="detectedBlock">
-        ${detected.length ? detected.map(x=>`<span class="detectedPill">${escapeHtml(x)}</span>`).join("") : "<p>No reviewed detected examples matched this capability.</p>"}
-      </div>
-    </section>
-
-    ${cap.hardware_support ? `
-      <section class="panel">
-        <h2>Hardware support</h2>
-        <p><b>Status:</b> ${cap.hardware_support.status}</p>
-        <p><b>CPU:</b> ${cap.hardware_support.cpu || "Unknown"}</p>
-        <p><b>GPU:</b> ${cap.hardware_support.gpu || "Unknown"} ${cap.hardware_support.vram_gb ? `(${cap.hardware_support.vram_gb} GB VRAM)` : ""}</p>
-        <p><b>RAM:</b> ${cap.hardware_support.ram_gb || "?"} GB</p>
-        <p><b>Free storage:</b> ${cap.hardware_support.free_storage_gb || "?"} GB</p>
-        <div class="detectedBlock">
-          ${(cap.hardware_support.notes || []).map(x=>`<span class="detectedPill">${x}</span>`).join("")}
-        </div>
-      </section>
-    ` : ""}
-
-    <section class="panel">
-      <h2>Recommended software and install direction</h2>
-      ${table(["Software","State","License / account","Install direction"], recs)}
-    </section>
-
-    <section class="panel">
-      <h2>What should happen next</h2>
-      <p>AssembleLink uses the live inventory and approved catalog to build one reviewable, content-hashed setup plan. Manual and license-gated tools stay outside automatic execution.</p>
-      <button class="primaryAction" data-install-recommended="${cap.id}">Configure Approved Toolkit</button>
-      <button class="secondaryAction" data-browse-approved>Browse Approved Software</button>
-      <p role="status">${escapeHtml(operationMessage)}</p>
-    </section>
-  `;
-}
-
 function table(headers, rows){
   return `
     <table class="compareTable">
       <thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c&&typeof c==="object"&&"__trustedHtml" in c?c.__trustedHtml:escapeHtml(c)}</td>`).join("")}</tr>`).join("")}</tbody>
     </table>
-  `;
-}
-function renderWorkstationSnapshotHero(){
-  const machine = systemProfile?.machine || {};
-  const os = systemProfile?.os || {};
-  const cpu = systemProfile?.cpu || {};
-  const mem = systemProfile?.memory || {};
-  const storage = systemProfile?.storage || {};
-  const gpu = Array.isArray(systemProfile?.gpu) ? systemProfile.gpu[0] : null;
-
-  return `
-    <section class="panel workstationHero">
-      <div>
-        <p class="eyebrow">Workstation snapshot</p>
-        <h2>${machine.name || "This PC"}</h2>
-        <p>${os.caption || "Windows"} · ${os.architecture || "64-bit"}</p>
-      </div>
-      <div class="heroSpecGrid">
-        <div><b>${cpu.name || "CPU unknown"}</b><span>processor</span></div>
-        <div><b>${gpu?.name || "GPU unknown"}</b><span>${gpu?.vram_gb || "?"} GB VRAM</span></div>
-        <div><b>${mem.total_gb || "?"} GB</b><span>RAM</span></div>
-        <div><b>${storage.free_gb || "?"} GB</b><span>free storage</span></div>
-      </div>
-    </section>
-  `;
-}
-
-function renderPrimaryActions(){
-  const drives=Array.isArray(systemProfile?.storage?.drives)?systemProfile.storage.drives:[];
-  const low=drives.filter(d=>(Number(d.free_percent)||0)<15).map(d=>d.drive);
-  const storageMessage=systemProfileError?"Live storage inventory unavailable.":low.length?`${low.join(", ")} need cleanup attention.`:"Review capacity and free space by drive.";
-  return `
-    <section class="panel actionConsole">
-      <p class="eyebrow">What can AssembleLink do now?</p>
-      <h2>Workstation actions</h2>
-      <div class="actionGrid">
-        <button class="bigAction" data-home-action="install">Install Recommended Software<span>Use approved queues and stamped receipts.</span></button>
-        <button class="bigAction" data-home-action="missing">Scan For Missing Tools<span>Find gaps by capability lane.</span></button>
-        <button class="bigAction" data-home-action="export">Export Blueprint<span>Prepare this machine for rebuild.</span></button>
-        <button class="bigAction" data-home-action="storage">Review Storage Health<span>${escapeHtml(storageMessage)}</span></button>
-      </div>
-      ${renderHomeActionResult()}
-    </section>
-  `;
-}
-
-function renderHomeActionResult(){
-  if(!activeHomeAction){ return ""; }
-
-  const caps = Array.isArray(graph?.capabilities) ? graph.capabilities : [];
-  if(activeHomeAction === "install"){
-    return `
-      <div class="actionResult">
-        <h3>Install Recommended Software</h3>
-        <p>Choose a lane below, then click Open. AssembleLink will show approved tools, install status, and receipts.</p>
-        ${table(["Capability","Readiness","Next step"], caps.map(c=>[
-          c.name || "",
-          (c.score || 0)+"%",
-          rawHtml(`<button class="primaryAction" data-review="${escapeHtml(c.id)}">Open</button>`)
-        ]))}
-      </div>
-    `;
-  }
-
-  if(activeHomeAction === "missing"){
-    return `
-      <div class="actionResult">
-        <h3>Missing tool scan</h3>
-        <p>Current capability graph shows ${caps.length} capability lanes. Missing-required counts are shown per lane when available.</p>
-        ${table(["Capability","Missing required","Status"], caps.map(c=>[
-          c.name || "",
-          Array.isArray(c.missing_required) ? c.missing_required.length : 0,
-          c.status || ""
-        ]))}
-      </div>
-    `;
-  }
-
-  if(activeHomeAction === "export"){
-    return `
-      <div class="actionResult">
-        <h3>Export Blueprint</h3>
-        <p>Next implementation target: export system profile, software inventory, capability graph, install queues, and receipts as a rebuild profile.</p>
-        <button class="primaryAction" data-tab-jump="export">Open Rebuild / Export</button>
-      </div>
-    `;
-  }
-
-  if(activeHomeAction === "storage"){
-    const drives = Array.isArray(systemProfile?.storage?.drives) ? systemProfile.storage.drives : [];
-    const bad = drives.filter(d => Number(d.free_percent || 0) < 10);
-    return `
-      <div class="actionResult">
-        <h3>Storage Health</h3>
-        <p>${bad.length} drive(s) need cleanup. Low free space is the main reason workstation health is below 90%.</p>
-        ${table(["Drive","Free","Status"], bad.map(d=>[
-          d.drive || "",
-          `${d.free_gb} GB (${d.free_percent}%)`,
-          "Needs cleanup"
-        ]))}
-      </div>
-    `;
-  }
-
-  return "";
-}
-
-function renderRecommendedActionsHome(){
-  const drives = Array.isArray(systemProfile?.storage?.drives) ? systemProfile.storage.drives : [];
-  const lowDrives = drives.filter(d => Number(d.free_percent || 0) < 10);
-  const caps = Array.isArray(graph?.capabilities) ? graph.capabilities : [];
-  const ai = caps.find(c => c.id === "local-ai");
-
-  const actions = [];
-  lowDrives.forEach(d=>{
-    actions.push({
-      level:"High",
-      title:`Clean up drive ${d.drive}`,
-      detail:`Only ${d.free_gb} GB free (${d.free_percent}%). Move caches, games, models, or build artifacts.`,
-      action:"View storage"
-    });
-  });
-
-  if(ai){
-    actions.push({
-      level:"Recommended",
-      title:"Review Local AI toolchain",
-      detail:"CUDA/model runtime support should be verified against the detected RTX 4060.",
-      action:"Open Local AI"
-    });
-  }
-
-  if(actions.length === 0){ return ""; }
-
-  return `
-    <details class="panel recommendedNow">
-      <summary>Recommended next actions</summary>
-      <p class="eyebrow">Recommended next actions</p>
-      <h2>Fix these first</h2>
-      <div class="recommendationList">
-        ${actions.map(a=>`
-          <article>
-            <b>${a.level}</b>
-            <h3>${a.title}</h3>
-            <p>${a.detail}</p>
-          </article>
-        `).join("")}
-      </div>
-    </section>
-  `;
-}
-function renderWorkstationHealth(){
-  if(!workstationHealth){ return ""; }
-
-  const areas = Array.isArray(workstationHealth.areas) ? workstationHealth.areas : [];
-
-  return `
-    <section class="panel">
-      <h2>Workstation health</h2>
-      <div class="summaryStrip">
-        <div><b>${workstationHealth.score}%</b><span>overall health</span></div>
-        ${areas.map(a=>`<div><b>${a.score}%</b><span>${a.name}</span></div>`).join("")}
-      </div>
-      <p>Storage is currently the main thing pulling this workstation down.</p>
-    </section>
-  `;
-}
-function renderCapabilityCard(c){
-  const s = getCapabilityStatus(c.id);
-  const miniStats = s;
-  const installed = miniStats ? miniStats.installed : (Array.isArray(c.detected) ? c.detected.length : 0);
-  const missing = miniStats ? miniStats.missing : (Array.isArray(c.missing_required) ? c.missing_required.length : 0);
-  return `
-    <article class="capabilityCard compactCapability">
-      <div class="cardTop">
-        <h3>${c.name || "Capability"}</h3>
-        <span>${humanStatus(s?.status || c.status || "")}</span>
-      </div>
-      <div class="scoreLine"><b>${c.score || 0}%</b><span> readiness</span></div>
-      <div class="simpleCapabilityStats">
-        <div><b>${installed}</b><span>installed / tracked</span></div>
-        <div><b>${missing}</b><span>missing</span></div>
-      </div>
-      <div class="capabilityActions">
-        <button class="primaryAction" data-review="${c.id}">Open Workspace</button>
-        <button class="secondaryAction" data-stack-plan="${c.id}">${missing > 0 ? "Install Missing" : "Review Plan"}</button>
-      </div>
-    </article>
-  `;
-}
-function renderCapabilityOverview(){
-  if(!graph){ return ""; }
-  const caps = Array.isArray(graph.capabilities) ? graph.capabilities : [];
-  return `
-    <section class="panel capabilityStart" style="display:none">
-      <h2>Start here</h2>
-      <p class="sectionLead">Choose a capability to review tools, generate an install path, and stamp AssembleLink receipts.</p>
-      <div class="capGrid">
-        ${caps.map(c=>renderCapabilityCard(c)).join("")}
-      </div>
-    </section>
   `;
 }
 function renderSystemProfile(){
@@ -904,44 +285,7 @@ function renderSystemProfile(){
   `;
 }
 
-function renderDashboardQuickStart(){
-  return `<section class="quickStart">
-    <div class="sectionHeading"><div><p class="eyebrow">Start here</p><h2>What do you want to do?</h2></div></div>
-    <div class="quickStartGrid">
-      <button class="quickCard primaryQuick" data-setup-jump="setup"><span class="quickIcon">＋</span><b>Set up this computer</b><small>Choose a job and install a complete reviewed toolkit.</small><em>Start setup →</em></button>
-      <button class="quickCard" data-setup-jump="browse"><span class="quickIcon">⌕</span><b>Find software & CLI tools</b><small>Search ${setupData?.catalog?.items?.length||0} approved downloads in one place.</small><em>Browse catalog →</em></button>
-      <button class="quickCard" data-setup-jump="update"><span class="quickIcon">↻</span><b>Check for updates</b><small>Compare installed versions against approved providers.</small><em>Check versions →</em></button>
-      <button class="quickCard" data-tab-jump="export"><span class="quickIcon">⇧</span><b>Rebuild another computer</b><small>Export or restore a verified machine blueprint.</small><em>Open rebuild →</em></button>
-    </div>
-  </section>`;
-}
-
-function renderDashboardInventory(){
-  const summary=softwareIntelligence?.summary||{};
-  const known=Number(summary.catalog_matched)||0;
-  const detected=Number(summary.detected)||0;
-  const updates=Number(summary.updates_available)||0;
-  const unknown=Number(summary.unknown)||0;
-  const appCandidates=Number(summary.unmatched_unique_applications ?? summary.unmatched_application_candidates ?? summary.unmatched)||0;
-  const components=Number(summary.unmatched_components)||0;
-  const provider=softwareIntelligence?.provider_health?.winget;
-  const scanTime=softwareIntelligence?.observed_utc?new Date(softwareIntelligence.observed_utc).toLocaleString():"Scan still loading";
-  return `<section class="panel inventoryOverview">
-    <div class="sectionHeading">
-      <div><p class="eyebrow">What you have</p><h2>Your software at a glance</h2><p>Last local scan: ${escapeHtml(scanTime)}</p></div>
-      <button id="refreshSoftware" class="secondaryAction">Rescan computer</button>
-    </div>
-    <div class="inventoryMetrics">
-      <button data-tab-jump="software"><b data-countup="${known}" data-count-key="known">${known}</b><span>known tools</span><small>Matched to approved downloads</small></button>
-      <button data-tab-jump="software"><b data-countup="${detected}" data-count-key="detected">${detected}</b><span>detected entries</span><small>${appCandidates} app candidates · ${components} components</small></button>
-      <button data-setup-jump="update" class="${updates?"metricAttention":""}"><b data-countup="${updates}" data-count-key="updates">${updates}</b><span>updates available</span><small>${updates?"Ready to review":"No approved updates reported"}</small></button>
-      <button data-tab-jump="software" class="${unknown?"metricCaution":""}"><b data-countup="${unknown}" data-count-key="unknown">${unknown}</b><span>versions to review</span><small>Unknown never means current</small></button>
-    </div>
-    ${provider==="package_manager_unavailable"?`<div class="inlineNotice"><b>Winget needs attention</b><span>Windows App Installer is unavailable, so package updates cannot be checked or installed automatically.</span></div>`:""}
-  </section>`;
-}
-
-function renderDashboardAssurance(){
+function renderProofPanel(){
   if(!workstationAssurance){
     return `<section class="panel assuranceCard assurancePending"><div class="sectionHeading"><div><p class="eyebrow">Workstation proof</p><h2>${workstationAssuranceError?"Proof needs attention":"Verifying local evidence…"}</h2><p>${workstationAssuranceError?"One or more live evidence files could not be verified.":"Checking system, drivers, software, and the trusted catalog."}</p></div><button id="refreshAssurance" class="secondaryAction">${workstationAssuranceError?"Rebuild proof":"Refresh proof"}</button></div>${workstationAssuranceError?`<p class="assuranceError" role="status">${escapeHtml(workstationAssuranceError)}</p>`:""}</section>`;
   }
@@ -957,92 +301,6 @@ function renderDashboardAssurance(){
     ${attention.length?`<div class="assuranceAttention">${attention.slice(0,5).map(item=>`<div class="${escapeHtml(item.severity||"info")}"><span>${item.severity==="critical"?"!":"i"}</span><p><b>${escapeHtml(item.label)}</b><small>${escapeHtml(item.detail)}</small></p></div>`).join("")}</div>`:`<p class="assuranceClear">All collected evidence passed without an attention item.</p>`}
     <p class="assuranceLimit">Local assurance covers hardware, drivers, software inventory, and catalog integrity. It does not claim malware absence, network security, or firmware freshness.</p>
   </section>`;
-}
-
-function renderDashboardMachine(){
-  const machine=systemProfile?.machine||{};
-  const os=systemProfile?.os||{};
-  const cpu=systemProfile?.cpu||{};
-  const memory=systemProfile?.memory||{};
-  const storage=systemProfile?.storage||{};
-  const gpu=Array.isArray(systemProfile?.gpu)?systemProfile.gpu[0]:null;
-  const drives=Array.isArray(storage.drives)?storage.drives:[];
-  const low=drives.filter(d=>Number(d.free_percent)<15);
-  const updates=Number(softwareIntelligence?.summary?.updates_available)||0;
-  const unknown=Number(softwareIntelligence?.summary?.unknown)||0;
-  const issues=[
-    ...(updates?[`${updates} approved software update${updates===1?"":"s"} available`]:[]),
-    ...(unknown?[`${unknown} installed version${unknown===1?" needs":"s need"} review`]:[]),
-    ...low.map(d=>`${d.drive} has ${d.free_percent}% free space`)
-  ];
-  return `<section class="dashboardTwoColumn">
-    <article class="panel machineCard">
-      <div class="sectionHeading"><div><p class="eyebrow">This computer</p><h2>${escapeHtml(machine.name||"Windows PC")}</h2><p>${escapeHtml(os.caption||"Windows")} · ${escapeHtml(os.architecture||"64-bit")}</p></div><button data-tab-jump="software" class="textButton">View inventory →</button></div>
-      <div class="machineFacts">
-        <div><span>Processor</span><b>${escapeHtml(cpu.name||"Scanning…")}</b></div>
-        <div><span>Graphics</span><b>${escapeHtml(gpu?.name||"Scanning…")}</b></div>
-        <div><span>Memory</span><b>${escapeHtml(memory.total_gb||"?")} GB RAM</b></div>
-        <div><span>Storage</span><b>${escapeHtml(storage.free_gb||"?")} GB free</b></div>
-      </div>
-    </article>
-    <article class="panel attentionCard">
-      <div class="sectionHeading"><div><p class="eyebrow">Needs attention</p><h2>${issues.length?`${issues.length} item${issues.length===1?"":"s"} to review`:"Everything looks clear"}</h2></div></div>
-      ${issues.length?`<ul class="attentionList">${issues.slice(0,5).map(issue=>`<li><span>!</span>${escapeHtml(issue)}</li>`).join("")}</ul>`:`<p>No approved updates, unknown versions, or low-space drives were reported.</p>`}
-      <div class="inlineActions"><button data-setup-jump="update" class="secondaryAction">Review updates</button><button data-tab-jump="drivers" class="secondaryAction">Review drivers</button></div>
-    </article>
-  </section>`;
-}
-
-function renderDashboardToolkits(){
-  const preferred=["developer-essentials","cloud-infrastructure","cybersecurity","local-ai","game-development","content-creation"];
-  const all=setupData?.toolkits?.toolkits||[];
-  const kits=preferred.map(id=>all.find(k=>k.id===id)).filter(Boolean);
-  if(!kits.length){return "";}
-  return `<section class="panel starterToolkits">
-    <div class="sectionHeading"><div><p class="eyebrow">Download by job</p><h2>Popular workstation setups</h2><p>Pick a role and AssembleLink will prepare the full reviewed tool list.</p></div><button data-setup-jump="setup" class="textButton">See all ${all.length} toolkits →</button></div>
-    <div class="toolkitPreviewGrid">${kits.map(kit=>`<article>
-      <span>${escapeHtml(kit.job_family||"Toolkit")}</span>
-      <h3>${escapeHtml(kit.name)}</h3>
-      <p>${escapeHtml(kit.description)}</p>
-      <div><small>${kit.software_ids?.length||0} reviewed tools</small><button data-quick-toolkit="${escapeHtml(kit.id)}">Choose</button></div>
-    </article>`).join("")}</div>
-  </section>`;
-}
-
-function renderDashboardInstalled(){
-  const items=(softwareIntelligence?.items||[]).filter(item=>item.installed&&item.catalog_id).slice(0,10);
-  if(!items.length){return "";}
-  return `<section class="panel installedPreview">
-    <div class="sectionHeading"><div><p class="eyebrow">Recognized software</p><h2>Tools AssembleLink can manage</h2></div><button data-tab-jump="software" class="textButton">View all installed software →</button></div>
-    <div class="installedChips">${items.map(item=>`<button data-tab-jump="software"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.installed_version||"Version unknown")}</span><em class="${item.update_status==="update_available"?"needsUpdate":""}">${escapeHtml(humanStatus(item.update_status))}</em></button>`).join("")}</div>
-  </section>`;
-}
-
-function renderSetupWorkspace(){
-  return `${renderPandaGuide()}${renderScanCard()}${renderSetupConsole()}`;
-}
-
-function renderHome(){
-  if(errorText){
-    return `<section class="panel"><h1>Something could not start</h1><p>The setup catalog and inventory remain available where possible.</p><pre>${escapeHtml(errorText)}</pre></section>`;
-  }
-
-  if(!graph){
-    return `<section class="panel"><h1>Loading workstation graph...</h1></section>`;
-  }
-
-  if(sidebarContext!=="overview"){return renderSetupWorkspace();}
-
-  return `
-    ${renderPandaGuide(renderReturningSummary())}
-    ${renderScanCard()}
-    ${setupRecovery?renderSetupRecovery():""}
-    ${renderDashboardQuickStart()}
-    ${softwareIntelligence?renderDashboardInventory():""}
-    ${renderDashboardMachine()}
-    ${renderDashboardInstalled()}
-    <details class="proofDetails"><summary>Workstation proof and evidence</summary>${renderDashboardAssurance()}</details>
-  `;
 }
 
 function softwareCategory(app){
@@ -1069,526 +327,741 @@ function softwareCategory(app){
   return "Other";
 }
 
-function licenseGuess(app){
-  const s=((app.name||"")+" "+(app.publisher||"")).toLowerCase();
-  if(s.includes("adobe")) return "Subscription / account";
-  if(s.includes("jetbrains")) return "Commercial / account";
-  if(s.includes("unity") || s.includes("unreal") || s.includes("epic")) return "Account / license gated";
-  if(s.includes("docker")) return "License depends on organization/use";
-  if(s.includes("git") || s.includes("python") || s.includes("blender") || s.includes("nmap") || s.includes("wireshark") || s.includes("gimp") || s.includes("audacity")) return "Free/open-source or free tier";
-  if(s.includes("driver") || s.includes("nvidia") || s.includes("amd") || s.includes("realtek")) return "Driver/admin approval";
-  return "Unknown / needs classification";
+
+// ---------- navigation + view state (menu-bar shell) ----------
+let view = "home";
+let wizardStep = 1;
+let openMenu = "";
+let planBuilding = false;
+let scanning = false;
+let kitFamily = "all";
+let kitSearch = "";
+let invFilter = "all";
+let invCategory = "all";
+let invSearch = "";
+let invSelected = null;
+let pandaNote = "";
+let uninstallSearch = "";
+let uninstallBusy = "";
+let uninstallMessage = "";
+let selfUninstallAck = false;
+let selfUninstalling = false;
+
+const PREF_KEY = "assemblelink.ui.v1";
+function readPrefs(){ try{ return JSON.parse(localStorage.getItem(PREF_KEY)||"{}")||{}; }catch(_e){ return {}; } }
+function writePref(key,value){ try{ const p=readPrefs(); p[key]=value; localStorage.setItem(PREF_KEY,JSON.stringify(p)); }catch(_e){ /* storage unavailable: the choice just will not persist */ } }
+let welcomeOpen = !readPrefs().welcomeSeen;
+let welcomeStep = 0;
+let welcomeLeaving = false;
+let invStep = 0;
+let invTourOn = !readPrefs().inventoryTourSeen;
+let invPull = false;
+let invLimit = 80;
+
+const reducedMotion = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+const MENUS = [
+  {id:"file", label:"File", items:[["go","home","Get started"],["go","wizard","Set up this computer"],["go","toolkits","Job toolkits"],["go","catalog","Software & CLI catalog"],["go","inventory","Installed software"],["go","readiness","Job readiness"],["go","project","Analyze a project"],["sep"],["act","rescan","Rescan this computer"]]},
+  {id:"logs", label:"Logs", items:[["go","blueprints","Blueprints / Rebuild"],["go","history","Install history"],["go","receipts","Receipts"],["go","proof","Workstation proof"]]},
+  {id:"drivers", label:"Drivers", items:[["go","drivers","Drivers & hardware"],["go","updates","Software updates"],["sep"],["act","rehw","Rescan hardware"]]},
+  {id:"help", label:"Help", items:[["go","how","How it works"],["go","safety","Safety promises"],["go","uninstall","Uninstall…"],["sep"],["go","about","About & diagnostics"]]}
+];
+const VIEW_MENU = {home:"file",wizard:"file",toolkits:"file",catalog:"file",inventory:"file",readiness:"file",project:"file",blueprints:"logs",receipts:"logs",history:"logs",proof:"logs",drivers:"drivers",updates:"drivers",how:"help",safety:"help",uninstall:"help",about:"help"};
+
+function installedByCatalog(){
+  return new Map((softwareIntelligence?.items||[]).filter(x=>x.installed&&x.catalog_id).map(x=>[x.catalog_id,x]));
+}
+function resetRun(){ setupPlan=null; setupResult=null; setupProgress=null; operationMessage=""; }
+function selectionCount(){ return selectedToolkitIds.size+selectedSoftwareIds.size; }
+function allocationOk(){
+  const e=selectedAllocationEstimate();
+  return Number.isInteger(maxAllocationGb)&&maxAllocationGb>=5&&maxAllocationGb<=2048&&e.complete&&e.mib<=maxAllocationGb*1024;
+}
+function go(next){
+  if(welcomeOpen&&next!=="home"){welcomeOpen=false;welcomeLeaving=false;writePref("welcomeSeen",true);}
+  if(next==="wizard"&&!setupRunning&&setupResult){resetRun();wizardStep=1;}
+  if(next==="wizard"&&!setupPlan&&!setupRunning){setupMode="setup";}
+  view=next; openMenu="";
+  if(next==="history"){loadInstallHistory().then(()=>{if(view==="history")render();});}
+  render(); window.scrollTo({top:0});
+}
+function startWizard({toolkit="",step=1,mode="setup"}={}){
+  if(setupRunning){view="wizard";wizardStep=4;render();return;}
+  if(toolkit){selectedToolkitIds.add(toolkit);}
+  setupMode=mode; wizardStep=step; resetRun(); go("wizard");
+}
+async function buildPlan(){
+  planBuilding=true; wizardStep=3; setupResult=null; setupProgress=null; operationMessage=""; render();
+  try{
+    setupPlan=JSON.parse(await invokeDesktop("build_setup_plan",{toolkitIds:[...selectedToolkitIds],softwareIds:[...selectedSoftwareIds],machineType,maxAllocationGib:maxAllocationGb}));
+  }catch(err){ operationMessage=String(err); setupPlan=null; wizardStep=2; }
+  planBuilding=false; render(); window.scrollTo({top:0});
+}
+async function rescanComputer(){
+  if(scanning){return;}
+  scanning=true; softwareScanError=""; render();
+  try{ await refreshSoftwareIntelligence(true); graph=buildLiveGraph(); await loadWorkstationAssurance(); }
+  catch(err){ softwareScanError=String(err); }
+  scanning=false; render();
 }
 
-function installDirectionGuess(app){
-  const s=((app.name||"")+" "+(app.publisher||"")).toLowerCase();
-  if(s.includes("adobe")) return "Adobe Creative Cloud / official Adobe installer";
-  if(s.includes("nvidia")) return "NVIDIA official driver/app source";
-  if(s.includes("amd")) return "AMD official source or motherboard vendor page";
-  if(s.includes("realtek")) return "Motherboard vendor page first";
-  if(s.includes("microsoft") || s.includes("visual studio") || s.includes("vs code")) return "Microsoft official installer or winget";
-  if(s.includes("jetbrains")) return "JetBrains Toolbox / official installer";
-  if(s.includes("python")) return "Python.org or winget";
-  if(s.includes("git")) return "Git official installer or winget";
-  if(s.includes("docker")) return "Docker official installer";
-  if(s.includes("blender")) return "Blender official installer or winget";
-  return "Classify source before install";
-}
-
-function renderSoftwareDetail(){
-  if(selectedSoftwareIndex === null){ return ""; }
-
-  const app=softwareInventory[selectedSoftwareIndex];
-  if(!app){ return ""; }
-
-  const category=softwareCategory(app);
-
-  return `
-    <section class="panel">
-      <div class="cardTop">
-        <h2>${escapeHtml(app.name || "Unknown software")}</h2>
-        <button id="closeSoftwareDetail">Close</button>
-      </div>
-
-      <div class="summaryStrip">
-        <div><b>${escapeHtml(category)}</b><span>category</span></div>
-        <div><b>${escapeHtml(app.version || "Unknown")}</b><span>installed version</span></div>
-        <div><b>${escapeHtml(app.available_version || "Unknown")}</b><span>available version</span></div>
-        <div><b>${escapeHtml(humanStatus(app.update_status||"unmatched"))}</b><span>update status</span></div>
-      </div>
-
-      <h3>Install and licensing direction</h3>
-      <table class="compareTable">
-        <tbody>
-          <tr><th>Publisher</th><td>${escapeHtml(app.publisher||"Unknown")}</td></tr>
-          <tr><th>Catalog identity</th><td>${escapeHtml(app.winget_id||app.catalog_id||"Unmatched")}</td></tr>
-          <tr><th>Provider state</th><td>${escapeHtml(humanStatus(app.provider_status||"not checked"))}</td></tr>
-          <tr><th>Observation freshness</th><td>${escapeHtml(app.freshness||"unknown")}</td></tr>
-          <tr><th>Inventory class</th><td>${escapeHtml(humanStatus(app.inventory_kind||"unclassified"))}</td></tr>
-          <tr><th>Catalog action</th><td>${escapeHtml(humanStatus(app.catalog_action||"review"))}</td></tr>
-        </tbody>
-      </table>
-
-      <p>Executable uninstall commands and full install paths are intentionally excluded from this dashboard evidence.</p>
-    </section>
-  `;
-}
-function renderSoftware(){
-  const rows = softwareInventory
-    .map(a=>({...a, category: softwareCategory(a)}))
-    .filter(a=> softwareKindFilter==="all" || (softwareKindFilter==="managed" && !!a.catalog_id) || (softwareKindFilter==="applications" && a.inventory_kind==="application_candidate") || (softwareKindFilter==="components" && !a.catalog_id && a.inventory_kind!=="application_candidate"))
-    .filter(a=> softwareFilter==="all" || a.category===softwareFilter)
-    .filter(a=> {
-      const q=softwareSearch.toLowerCase();
-      return !q || ((a.name||"")+" "+(a.publisher||"")+" "+(a.version||"")).toLowerCase().includes(q);
-    })
-    .slice(0,120);
-
-  const cats=["all","Creative","Game Dev","Security","Development","AI / GPU","Drivers / Hardware","Runtime / SDK","Launcher / Game","Everyday Apps","Other"];
-  const managedCount=softwareInventory.filter(a=>a.catalog_id).length;
-  const appCandidateCount=Number(softwareIntelligence?.summary?.unmatched_unique_applications ?? softwareIntelligence?.summary?.unmatched_application_candidates ?? softwareIntelligence?.summary?.unmatched)||0;
-  const componentCount=Number(softwareIntelligence?.summary?.unmatched_components)||0;
-
-  return `
-    <section class="hero">
-      <div>
-        <h1>Software intelligence</h1>
-        <p>Detected local software, grouped by what it enables. Use this to find missing tools, licensed apps, runtimes, SDKs, launchers, and workstation dependencies.</p>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Inventory controls</h2>
-      <button id="refreshSoftware" class="primaryAction">Scan this computer and check versions</button>
-      <p role="status">${escapeHtml(operationMessage)}</p>
-      ${softwareIntelligence?`<div class="summaryStrip"><div><b>${softwareIntelligence.summary.detected}</b><span>detected</span></div><div><b>${softwareIntelligence.summary.catalog_matched}</b><span>catalog matched</span></div><div><b>${softwareIntelligence.summary.unmatched_unique_applications ?? softwareIntelligence.summary.unmatched}</b><span>app candidates</span></div><div><b>${softwareIntelligence.summary.unmatched_components||0}</b><span>components</span></div><div><b>${softwareIntelligence.summary.updates_available}</b><span>updates</span></div><div><b>${softwareIntelligence.summary.unknown}</b><span>unknown</span></div></div>`:""}
-      <input id="softwareSearch" placeholder="Search software, publisher, version..." value="${escapeHtml(softwareSearch)}" />
-      <div class="detectedBlock inventoryKindFilters" aria-label="Inventory type">
-        ${[["all",`All ${softwareInventory.length}`],["managed",`Managed ${managedCount}`],["applications",`Apps to review ${appCandidateCount}`],["components",`Components ${componentCount}`]].map(([id,label])=>`<button class="filterBtn ${softwareKindFilter===id?"active":""}" data-inventory-kind="${id}">${escapeHtml(label)}</button>`).join("")}
-      </div>
-      <div class="detectedBlock">
-        ${cats.map(c=>`<button class="filterBtn ${softwareFilter===c?"active":""}" data-software-filter="${c}">${c}</button>`).join("")}
-      </div>
-      <p>Showing ${rows.length} of ${softwareInventory.length} detected entries.</p>
-    </section>
-
-    ${renderSoftwareDetail()}
-
-    <section class="panel">
-      <h2>Detected software</h2>
-      ${table(["Software","Installed","Available","Update status","Class","Identity"], rows.map(a=>[
-        rawHtml(`<button class="linkBtn" data-software-index="${softwareInventory.indexOf(a)}">${escapeHtml(a.name || "")}</button>`),
-        a.version || "",
-        a.available_version || "",
-        humanStatus(a.update_status||"unmatched"),
-        humanStatus(a.inventory_kind||"unclassified"),
-        a.winget_id || a.catalog_id || "Unmatched"
-      ]))}
-    </section>
-
-    <section class="panel">
-      <h2>What the status means</h2>
-      <p>“Current” requires both a known installed version and a successful approved-provider check. Offline, stale, malformed, or unavailable provider checks stay unknown and never become a false green status.</p>
-    </section>
-  `;
-}
-
-function renderStacks(){
-  const caps = graph && Array.isArray(graph.capabilities) ? graph.capabilities : [];
-  return `
-    <section class="hero"><div><h1>Workstation stacks</h1><p>Stacks compare what a role needs against this machine.</p></div></section>
-    <section class="panel">
-      <table class="compareTable">
-        <thead>
-          <tr>
-            <th>Stack</th>
-            <th>Readiness</th>
-            <th>Detected examples</th>
-            <th>Next actions</th>
-            <th>Controls</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${caps.map(c=>`
-            <tr>
-              <td><b>${c.name}</b></td>
-              <td>${c.status} · ${c.score}%</td>
-              <td>${Array.isArray(c.detected) ? c.detected.slice(0,4).join(", ") : ""}</td>
-              <td>${Array.isArray(c.actions) ? c.actions.slice(0,2).join(", ") : ""}</td>
-              <td>
-                <div class="rowControls">
-                  <button class="controlBtn primary" data-review="${c.id}">Review</button>
-                  <button class="controlBtn" data-stack-plan="${c.id}">Plan</button>
-                </div>
-              </td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </section>
-  `;
-}
-
-function renderLicensing(){
-  const items=setupData?.catalog?.items||[];
-  const rules={
-    free:["Automatic","Free distribution; exact package identity still required."],
-    free_open_source:["Automatic","Open-source license recorded; exact package identity still required."],
-    account_required:["Review","Installation may be automated, but sign-in or account terms remain with the user."],
-    license_review_required:["Manual","License acceptance and usage terms must be reviewed before installation."],
-    source_available_license_review:["Manual","Source is available, but its license requires explicit review."]
-  };
-  const groups=[...new Set(items.map(x=>x.license||"unknown"))].sort().map(license=>{
-    const matching=items.filter(x=>(x.license||"unknown")===license);
-    const rule=rules[license]||["Manual","No approved automatic-install policy is defined."];
-    return [license.replaceAll("_"," "),matching.length,rule[0],rule[1]];
-  });
-  const automatic=items.filter(x=>["free","free_open_source"].includes(x.license)).length;
-  return `
-    <section class="hero"><div><h1>Licensing</h1><p>Every catalog entry carries an install policy so account, commercial, and source-license terms are visible before approval.</p></div></section>
-    <section class="summaryStrip"><div><b>${items.length}</b><span>reviewed entries</span></div><div><b>${automatic}</b><span>automatic eligible</span></div><div><b>${items.length-automatic}</b><span>review required</span></div></section>
-    <section class="panel">
-      ${table(["Catalog license class","Tools","Install mode","Rule"],groups)}
-      <p>Drivers remain recommend-only and require separate administrator approval, an official vendor source, and recovery planning.</p>
-    </section>
-  `;
-}
-
-function renderExport(){
-  return `
-    <section class="hero"><div><h1>Rebuild / Export</h1><p>Export this workstation blueprint and compare it against a new machine.</p></div></section>
-    <section class="panel">
-      <h2>Export this machine</h2>
-      <p>Create a verified rebuild blueprint from every currently installed application that matches an approved AssembleLink catalog identity. Unmatched applications are counted but never converted into guessed installers.</p>
-      <button id="exportMachineBlueprint" class="primaryAction">Export this machine blueprint</button>
-      <button data-setup-jump="restore">Restore or compare a blueprint</button>
-      <p id="profileOperation" role="status">${escapeHtml(operationMessage)}</p>
-      <p>The blueprint contains catalog IDs and setup policy—not personal files, secrets, arbitrary commands, or installer URLs. A matching SHA-256 sidecar and receipt are created with it.</p>
-    </section>
-  `;
-}
-
-function renderReceipts(){
-  const summary=receiptIndex?.summary||{total:0,valid:0,unverified:0,failed:0};
-  const rows=(receiptIndex?.items||[]).map(item=>[
-    item.name,
-    item.schema,
-    humanStatus(item.integrity),
-    `${Math.max(0,Number(item.bytes)||0).toLocaleString()} bytes`,
-    item.modified_unix?new Date(item.modified_unix*1000).toLocaleString():"Unknown",
-    item.sha256?`${item.sha256.slice(0,16)}…`:"—"
-  ]);
-  return `
-    <section class="hero"><div><h1>Receipts</h1><p>Local, append-only evidence for setup runs and other machine operations. AssembleLink verifies adjacent SHA-256 files before showing evidence as valid.</p></div></section>
-    <section class="summaryStrip"><div><b>${summary.total}</b><span>receipts</span></div><div><b>${summary.valid}</b><span>integrity valid</span></div><div><b>${summary.unverified}</b><span>legacy / unverified</span></div><div><b>${summary.failed}</b><span>integrity failures</span></div></section>
-    <section class="panel">
-      <button id="refreshReceipts">Refresh evidence</button>
-      <p role="status">${escapeHtml(receiptLoadError)}</p>
-      ${rows.length?table(["Receipt","Schema","Integrity","Size","Created","SHA-256"],rows):"<p>No local receipts have been created yet. Completing a setup or export operation will create evidence here.</p>"}
-      <p><b>Unverified</b> means an older receipt has no integrity sidecar. <b>Mismatch</b>, <b>malformed sidecar</b>, and <b>too large</b> are failures and must not be trusted.</p>
-    </section>
-  `;
-}
-function renderDrivers(){
-  if(!driverProfile){
-    return `
-      <section class="hero"><div><h1>Drivers and vendor setup</h1><p>No current driver profile is available for this machine.</p></div></section>
-      <section class="panel"><h2>Safe state</h2><p>Driver execution is disabled until hardware is detected and an official vendor source is verified. AssembleLink will not guess a driver or silently install one.</p><button id="refreshDrivers">Scan hardware</button><p role="status">${escapeHtml(driverLoadError)}</p></section>
-    `;
+// ---------- panda voice ----------
+function pandaMood(){
+  const total=Number(setupProgress?.total)||setupPlan?.item_count||0;
+  const done=Math.min(Number(setupProgress?.completed)||0,total);
+  const summary=softwareIntelligence?.summary||{};
+  if(setupRunning){return {pose:"carry",title:"Carrying your tools over",text:`${done} of ${total} done. Keep me open; I save progress after every tool.`};}
+  if(errorText||(!setupData&&setupLoadError)){return {pose:"sad",title:"I could not start",text:"My trusted runtime is not answering. Retry, and open About & diagnostics if it keeps happening."};}
+  if(view==="wizard"){
+    if(setupResult){return {pose:"happy",title:"All done",text:"Here is exactly what happened for every tool."};}
+    if(planBuilding){return {pose:"think",title:"Working out the plan",text:"Resolving dependencies and checking sizes. Nothing is installed."};}
+    if(wizardStep===3&&setupPlan){return {pose:"think",title:"Your plan is ready",text:"Check the list. I will not install anything until you approve it."};}
+    if(wizardStep===2){const n=selectionCount();return n?{pose:"happy",title:`${n} ${n===1?"pick":"picks"} so far`,text:"Looking good. Press Review plan when you are ready."}:{pose:"idle",title:"What work do you do?",text:"Tick a job toolkit, or add single tools from the catalog."};}
+    return {pose:"idle",title:"First, tell me about this computer",text:"A desktop gets more room than a laptop. You also set a storage ceiling."};
   }
+  if(view==="inventory"){
+    if(pandaNote){return {pose:"think",title:"About your inventory",text:pandaNote};}
+    return {pose:"happy",title:"This is my inventory room",text:"Unroll the scroll and search it. Ask me to target updates, unmanaged apps, or anything with an unknown version."};
+  }
+  if(view==="home"){
+    if(softwareScanError){return {pose:"sad",title:"I could not finish looking around",text:"The scan hit a problem. You can still set up tools, or scan again."};}
+    if(scanning||!softwareIntelligence){return {pose:"scan",title:"Looking around your computer",text:"Reading installed software and matching the approved catalog."};}
+    return {pose:"happy",title:"Ready when you are",text:`I found ${Number(summary.detected)||0} things here.`};
+  }
+  return {pose:"idle",title:"",text:""};
+}
+function renderPandaGuide(extra=""){
+  const mood=pandaMood();
+  return `<section class="pandaGuide" data-pose="${mood.pose}" aria-live="polite"><div class="pandaStage">${pandaSvg(mood.pose)}</div><div class="pandaSpeech"><b>${escapeHtml(mood.title)}</b><p>${escapeHtml(mood.text)}</p>${mood.pose==="scan"?`<div class="scanLine" aria-hidden="true"><span></span></div>`:""}${extra}</div></section>`;
+}
+function runCountUps(){
+  document.querySelectorAll("[data-countup]").forEach(node=>{
+    const target=Number(node.getAttribute("data-countup"))||0;
+    const key=`${node.getAttribute("data-count-key")||"count"}:${target}`;
+    if(reducedMotion()||countedKeys.has(key)||target===0){node.textContent=String(target);countedKeys.add(key);return;}
+    countedKeys.add(key);
+    const start=performance.now();
+    const step=now=>{const t=Math.min(1,(now-start)/700);node.textContent=String(Math.round(target*(1-Math.pow(1-t,3))));if(t<1){requestAnimationFrame(step);}};
+    node.textContent="0"; requestAnimationFrame(step);
+  });
+}
 
-  const p = driverProfile.platform || {};
-  const recs = Array.isArray(driverProfile.recommendations) ? driverProfile.recommendations : [];
+// ---------- shell ----------
+function patchMenu(){
+  const bar=document.querySelector(".menubar"); if(!bar){render();return;}
+  bar.outerHTML=renderMenuBar();
+}
+function renderMenuBar(){
+  const s=softwareIntelligence?.summary;
+  const pill=scanning||(!softwareIntelligence&&!softwareScanError)
+    ?`<span class="pill working"><i></i>Scanning…</span>`
+    :softwareScanError?`<button class="pill warn" id="retryScan"><i></i>Scan needs attention · retry</button>`
+    :`<span class="pill ready"><i></i>${Number(s?.detected)||0} detected · ${Number(s?.catalog_matched)||0} managed</span>`;
+  const active=VIEW_MENU[view];
+  const tabs=[["home","Overview"],["wizard","Set up this computer"],["toolkits","Job toolkits"],["catalog","Software & CLI catalog"],["inventory","Installed software"],["readiness","Job readiness"]];
+  return `<header class="menubar"><div class="menuRow" role="menubar">
+    <button class="brandBtn" data-go="home" aria-label="AssembleLink home"><span class="brandMark">${pandaSvg("idle","AssembleLink")}</span><b>AssembleLink</b></button>
+    <nav class="menus">${MENUS.map(m=>`<div class="menu ${openMenu===m.id?"open":""} ${active===m.id?"current":""}">
+      <button class="menuBtn" data-menu="${m.id}" aria-haspopup="menu" aria-expanded="${openMenu===m.id}">${m.label}</button>
+      ${openMenu===m.id?`<div class="menuDrop" role="menu">${m.items.map(it=>it[0]==="sep"?`<hr>`:`<button role="menuitem" class="${it[0]==="go"&&view===it[1]?"on":""}" ${it[0]==="go"?`data-go="${it[1]}"`:`data-act="${it[1]}"`}>${escapeHtml(it[2])}</button>`).join("")}</div>`:""}
+    </div>`).join("")}</nav>
+    <div class="menuSpacer"></div>${pill}
+  </div>
+  <nav class="tabStrip" aria-label="Pages">${tabs.map(([id,label])=>`<button class="pageTab ${view===id?"on":""}" data-go="${id}" ${view===id?'aria-current="page"':""}>${escapeHtml(label)}</button>`).join("")}</nav>
+  </header>`;
+}
+function pageHead(title,sub="",right=""){
+  return `<div class="pageHead"><div><h1>${escapeHtml(title)}</h1>${sub?`<p>${escapeHtml(sub)}</p>`:""}</div>${right}</div>`;
+}
+function statusLine(){ return operationMessage?`<p class="statusLine" role="status">${escapeHtml(operationMessage)}</p>`:""; }
+function noRuntime(){
+  return `<section class="card center"><h2>The trusted runtime is unavailable</h2><p>Machine-changing actions are disabled until it answers.</p><button id="retryRuntime" class="btn primary">Retry runtime</button><p class="statusLine" role="status">${escapeHtml(setupLoadError)}</p></section>`;
+}
+
+
+// ---------- Home / splash ----------
+function renderSetupRecovery(){
+  if(!setupRecovery){return setupRecoveryError?`<p class="statusLine" role="status">Interrupted-run inspection unavailable: ${escapeHtml(setupRecoveryError)}</p>`:"";}
+  const completed=Number(setupRecovery.progress?.completed)||0;
+  const total=Number(setupRecovery.progress?.total)||0;
+  return `<aside class="recoveryNotice"><div><b>Interrupted setup found</b><span>${completed} of ${total} tools were recorded before the run stopped. Completed automatic tools will be independently checked before they are skipped.</span></div><button id="reviewRecovery" class="btn secondary">Review and resume</button></aside>`;
+}
+function specs(){
+  const sp=systemProfile; if(!sp){return null;}
+  const cpu=sp.cpu||{},mem=sp.memory||{},st=sp.storage||{},os=sp.os||{},m=sp.machine||{};
+  const gpu=(Array.isArray(sp.gpu)?sp.gpu:[])[0]||{};
+  return {name:m.name||"This computer",cpu:cpu.name||"Unknown processor",cores:cpu.cores,threads:cpu.logical_processors,ram:mem.total_gb,gpu:gpu.name||"Unknown graphics",vram:gpu.vram_gb,free:st.free_gb,total:st.total_gb,os:os.caption||"Windows",arch:os.architecture||""};
+}
+function welcomeLines(){
+  const returning=(Number(receiptIndex?.summary?.total)||0)>0;
+  const sm=softwareIntelligence?.summary;
+  const updates=Number(sm?.updates_available)||0;
+  return [
+    {pose:"happy",text:returning?"Welcome back! I kept an eye on things while you were away.":"Welcome to AssembleLink! I am your setup panda. I help you set up, check, and tidy this computer."},
+    sm?{pose:"think",text:`I found ${Number(sm.detected)||0} things installed. ${Number(sm.catalog_matched)||0} are tools I can manage${updates?`, and ${updates} ${updates===1?"has":"have"} an update ready`:""}.`}:{pose:"scan",text:"I am still looking through your software…"},
+    {pose:"happy",final:true,returning,text:returning?"Want to add more tools, or just look around?":"Ready? I will walk you through it one step at a time. Nothing installs until you say so."}
+  ];
+}
+function dismissWelcome(after){
+  if(!welcomeOpen||welcomeLeaving){return;}
+  writePref("welcomeSeen",true);
+  welcomeLeaving=true;
+  const dock=document.querySelector(".pandaDock");
+  dock?.classList.add("leaving");
+  window.setTimeout(()=>{welcomeOpen=false;welcomeLeaving=false;document.querySelector(".pandaDock")?.remove();if(after){after();}},reducedMotion()?0:420);
+}
+function renderWelcome(){
+  const lines=welcomeLines(); const i=Math.min(welcomeStep,lines.length-1); const l=lines[i];
+  return `<aside class="pandaDock ${welcomeLeaving?"leaving":""}" role="complementary" aria-label="Panda guide" aria-live="polite">
+    <div class="dockStage">${grassSvg(false)}<button class="dockPanda" id="welcomePanda" aria-label="Next line">${pandaSvg(l.pose)}</button>${grassSvg(true)}</div>
+    <div class="vnBox dockBox"><span class="vnName">Panda</span><button class="vnClose" id="welcomeSkip" aria-label="Dismiss the panda">✕</button>
+      <p class="vnText">${escapeHtml(l.text)}</p>
+      <div class="vnFoot"><span class="vnDots" aria-hidden="true">${lines.map((_,k)=>`<i class="${k===i?"on":""}"></i>`).join("")}</span>
+        <span class="vnBtns">${l.final?`<button id="welcomeStart" class="btn primary small">${l.returning?"Set up more tools":"Get started"}</button><button id="welcomeLook" class="btn secondary small">Got it</button>`:`<button id="welcomeNext" class="btn primary small">Next ▸</button>`}</span></div>
+    </div>
+  </aside>`;
+}
+function patchDock(){
+  const dock=document.querySelector(".pandaDock"); if(!dock){return;}
+  dock.outerHTML=renderWelcome();
+}
+function renderHome(){
+  const s=softwareIntelligence?.summary||{};
+  const sp=specs();
+  const updates=Number(s.updates_available)||0;
+  const tile=(label,value,sub)=>`<div class="specTile"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(sub||"")}</small></div>`;
+  const see=(filter,value,label)=>`<button class="seeTile" data-inv-open="${filter}"><b data-countup="${Number(value)||0}" data-count-key="see-${filter}">0</b><span>${escapeHtml(label)}</span></button>`;
+  const scanFail=softwareScanError?`<aside class="recoveryNotice warn"><div><b>The software scan could not finish</b><span>Nothing was changed. You can still set up tools.</span></div><button id="retryScan2" class="btn secondary">Scan again</button></aside>`:"";
+  return `${pageHead("Your computer",sp?`${sp.name} · ${sp.os}${sp.arch?` · ${sp.arch}`:""}`:"Reading your hardware…",`<button id="getStarted" class="btn primary">${(Number(receiptIndex?.summary?.total)||0)>0?"Set up more tools":"Get started"}</button>`)}
+    ${scanning||(!softwareIntelligence&&!softwareScanError)?`<div class="scanLine" aria-hidden="true"><span></span></div>`:""}
+    ${scanFail}${renderSetupRecovery()}
+    <section aria-label="This computer"><h2 class="sectionLabel">This computer</h2>
+      <div class="specGrid">${sp?[tile("Processor",sp.cpu,sp.cores?`${sp.cores} cores${sp.threads?` / ${sp.threads} threads`:""}`:""),tile("Memory",sp.ram?`${sp.ram} GB`:"Unknown","installed"),tile("Graphics",sp.gpu,sp.vram?`${sp.vram} GB video memory reported`:""),tile("Storage",sp.free?`${sp.free} GB free`:"Unknown",sp.total?`of ${sp.total} GB`:""),tile("System",sp.os,sp.arch)].join(""):`<p class="empty">I am still reading your hardware…</p>`}</div>
+    </section>
+    <section aria-label="What I see"><h2 class="sectionLabel">What I see</h2>
+      <div class="seeGrid">${softwareIntelligence?[see("all",s.detected,"things found"),see("managed",s.catalog_matched,"tools I manage"),see("updates",updates,updates===1?"update ready":"updates ready"),see("unknown",s.unknown,"unknown versions")].join(""):`<p class="empty">Looking around your computer…</p>`}</div>
+    </section>
+    <section aria-label="What next"><h2 class="sectionLabel">What next</h2>
+      <div class="nextRow"><button class="nextCard" data-go="toolkits"><b>Pick a job toolkit</b><span>Tools for the work you do.</span></button><button class="nextCard" data-go="readiness"><b>Job readiness</b><span>See what each toolkit is missing.</span></button><button class="nextCard" data-go="inventory"><b>Visit the inventory room</b><span>The panda reads you your software.</span></button></div>
+    </section>`;
+}
+
+// ---------- Setup wizard ----------
+function renderStepper(){
+  const names=["Your computer","Pick tools","Review","Install"];
+  return `<ol class="stepper" aria-label="Setup steps">${names.map((n,i)=>{const k=i+1;const cls=k<wizardStep?"done":k===wizardStep?"active":"";return `<li class="${cls}" ${k===wizardStep?'aria-current="step"':""}><b>${k<wizardStep?"✓":k}</b><span>${n}</span></li>`;}).join("")}</ol>`;
+}
+function renderMachineStep(){
+  const estimate=selectedAllocationEstimate();
+  const freeGb=Number(systemProfile?.storage?.free_gb);
+  const limitMib=maxAllocationGb*1024;
+  const overLimit=estimate.complete&&estimate.mib>limitMib;
+  return `<section class="card wizCard" aria-labelledby="machineTitle">
+    <h2 id="machineTitle">What are you setting up?</h2>
+    <div class="bigChoices" role="radiogroup" aria-label="Machine type">
+      <label class="bigChoice ${machineType==="desktop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="desktop" ${machineType==="desktop"?"checked":""}><span class="glyph" aria-hidden="true">🖥</span><b>Desktop</b><span>Room for larger SDKs, containers, and local AI.</span></label>
+      <label class="bigChoice ${machineType==="laptop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="laptop" ${machineType==="laptop"?"checked":""}><span class="glyph" aria-hidden="true">💻</span><b>Laptop</b><span>Keeps the footprint tighter for portable storage.</span></label>
+    </div>
+    <div class="ceiling">
+      <label for="maxAllocationGb"><b>Maximum planned allocation</b><span>The most storage this plan may use.</span></label>
+      <div class="ceilingInput"><input id="maxAllocationGb" type="number" min="5" max="2048" step="1" value="${escapeHtml(maxAllocationGb)}"><span>GB</span></div>
+      <small>${Number.isFinite(freeGb)?`${escapeHtml(freeGb)} GB currently free on this computer.`:"Live free space is unavailable."}</small>
+    </div>
+    ${overLimit?`<p class="allocationWarning" role="alert">Your current picks are about ${formatAllocation(estimate.mib-limitMib)} over this limit. Raise it or remove tools.</p>`:""}
+    <p class="fine">Planning estimate only. Projects, package caches, containers, virtual machines, AI models, games, and later SDK downloads are not included.</p>
+  </section>${renderSetupRecovery()}`;
+}
+function renderToolkitGroups(kits){
+  const families=[...new Set(kits.map(k=>k.job_family||"Other"))].sort();
+  return families.map(family=>`<section class="toolkitFamily"><h4>${escapeHtml(family)}</h4><div class="pickGrid">${kits.filter(k=>(k.job_family||"Other")===family).map(k=>`<label class="pickCard ${selectedToolkitIds.has(k.id)?"isPicked":""}"><input type="checkbox" data-toolkit-id="${escapeHtml(k.id)}" ${selectedToolkitIds.has(k.id)?"checked":""}><i class="tick" aria-hidden="true"></i><b>${escapeHtml(k.name)}</b><span>${escapeHtml(k.description)}</span><small>${k.software_ids.length} reviewed tools</small></label>`).join("")}</div></section>`).join("");
+}
+function renderPickStep(){
+  const kits=setupData?.toolkits?.toolkits||[];
+  const items=setupData?.catalog?.items||[];
+  const byId=new Map(items.map(x=>[x.id,x]));
+  const singles=[...selectedSoftwareIds].map(id=>`<span class="chip">${escapeHtml(byId.get(id)?.name||id)}<button data-remove-software="${escapeHtml(id)}" aria-label="Remove ${escapeHtml(byId.get(id)?.name||id)}">✕</button></span>`).join("");
+  return `<section class="card wizCard">
+    <h2>Pick a job toolkit</h2>
+    <p class="sub">Tick any toolkits that match your work. You can also add single tools.</p>
+    <div class="singles"><button class="btn secondary small" data-go="catalog">+ Add single tools from the catalog</button>${singles}</div>
+    ${renderToolkitGroups(kits)}
+  </section>${statusLine()}`;
+}
+function renderReviewStep(){
+  if(planBuilding||!setupPlan){return `<section class="card center"><h2>Working out your plan…</h2><div class="scanLine center" aria-hidden="true"><span></span></div></section>`;}
+  const planItems=setupPlan.items||[];
+  const isUpdate=setupPlan.plan_type==="update";
+  return `<section class="card planPanel wizCard"><h2>Review ${isUpdate?"update":"setup"} plan</h2>
+    <p class="planSummary"><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>
+    ${setupPlan.machine_profile&&setupPlan.allocation?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>`:""}
+    ${setupPlan.profile_guidance?.caution_count?`<p class="allocationWarning">${escapeHtml(setupPlan.profile_guidance.caution_count)} tools may have substantial storage, battery, memory, GPU, or thermal impact on a laptop.</p>`:""}
+    ${setupPlan.manual_count?`<p class="fine">Manual items need your attention after the automatic ones finish; I never guess an installer.</p>`:""}
+    ${table(["Tool","Size","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",humanStatus(x.status)]))}
+    <details class="moreDetails"><summary>Package identity, license, dependencies</summary>${table(["Tool","Machine fit","Package identity","License","Dependencies","Admin / reboot"],planItems.map(x=>[x.name,x.profile_advisory==="review_laptop_resource_impact"?"Review laptop impact":"Compatible",x.winget_id||"—",(x.license||"").replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`]))}</details>
+    <button id="exportBlueprint" class="btn ghost small">Export this selection as a blueprint</button>
+  </section>${statusLine()}`;
+}
+function renderInstallStep(){
+  const total=Number(setupProgress?.total)||setupPlan?.item_count||0;
+  const completed=Math.min(Number(setupProgress?.completed)||0,total);
+  const rows=Array.isArray(setupProgress?.results)?setupProgress.results:[];
+  const pct=Math.round(completed/Math.max(total,1)*100);
+  const status=setupResult||setupProgress?.status==="complete"?"Complete":setupRunning?"Running":"Stopped";
+  const resultRows=setupResult?.results||[];
+  return `<section class="card setupProgress" aria-live="polite"><h2>${setupResult?"All done":"Installing"}</h2>
+    <p><b>${escapeHtml(status)}</b> · ${completed} of ${total} tools finished</p>
+    <div class="carryTrack" style="--pct:${pct}%"><div class="carryFill"></div><div class="carryRunner ${setupRunning?"walking":""}">${pandaSvg(setupResult||setupProgress?.status==="complete"?"happy":setupRunning?"carry":"idle","Panda carrying your tools")}</div></div>
+    <progress class="srOnly" value="${completed}" max="${Math.max(total,1)}">${completed} of ${total}</progress>
+    <p class="fine">Keep AssembleLink open. Progress is saved after every tool.</p>
+    ${setupResult?table(["Tool","Outcome","Source verified","Installed verified","Details"],resultRows.map(x=>[x.name,humanStatus(x.status),x.source_verified?"Yes":"No",x.verified?"Yes":"No",x.message])):rows.length?table(["Tool","Outcome","Details"],rows.map(x=>[x.name||x.winget_id||x.id,humanStatus(x.status),x.message])):""}
+  </section>${statusLine()}`;
+}
+function renderWizardNav(){
+  const est=selectedAllocationEstimate();
+  const sel=selectionCount();
+  const info=wizardStep===2?`<span class="navInfo"><b>${sel}</b> ${sel===1?"pick":"picks"}${est.itemCount?` · about ${formatAllocation(est.mib)}`:""}</span>`:`<span class="navInfo"></span>`;
+  if(wizardStep===1){return `<footer class="wizNav">${info}<span class="navBtns"><button id="wizNext" class="btn primary" ${Number.isInteger(maxAllocationGb)&&maxAllocationGb>=5?"":"disabled"}>Next: pick tools →</button></span></footer>`;}
+  if(wizardStep===2){return `<footer class="wizNav">${info}<span class="navBtns"><button id="wizBack" class="btn ghost">← Back</button><button id="reviewSetup" class="btn primary" ${sel>0&&allocationOk()?"":"disabled"}>Review plan →</button></span></footer>`;}
+  if(wizardStep===3){
+    const resuming=setupRecovery?.plan?.plan_id===setupPlan?.plan_id;
+    return `<footer class="wizNav"><span class="navInfo">${setupPlan?"Nothing installs until you approve.":""}</span><span class="navBtns"><button id="wizBack" class="btn ghost" ${setupRunning?"disabled":""}>← Back</button>${setupPlan?.item_count?`<button id="approveSetup" class="btn primary" ${setupRunning||planBuilding?"disabled":""}>${resuming?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</span></footer>`;
+  }
+  return `<footer class="wizNav"><span class="navInfo"></span><span class="navBtns">${setupRunning?"":`<button id="wizFinish" class="btn primary">Finish</button><button class="btn ghost" data-go="receipts">View receipts</button>`}</span></footer>`;
+}
+function renderWizard(){
+  if(!setupData){return noRuntime();}
+  if(wizardStep===3&&!setupPlan&&!planBuilding){wizardStep=2;}
+  if(wizardStep===4&&!setupRunning&&!setupResult&&!setupProgress){wizardStep=2;}
+  const body=wizardStep===1?renderMachineStep():wizardStep===2?renderPickStep():wizardStep===3?renderReviewStep():renderInstallStep();
+  return `${pageHead("Set up this computer")}${renderStepper()}${renderPandaGuide()}${body}${renderWizardNav()}`;
+}
+
+// ---------- Job toolkits gallery ----------
+function kitProgress(kit,installed){
+  const ids=kit.software_ids||[];
+  const have=ids.filter(id=>installed.has(id));
+  return {total:ids.length,have:have.length,missing:ids.filter(id=>!installed.has(id)),pct:ids.length?Math.round(have.length/ids.length*100):0};
+}
+function ring(pct,label){ return `<div class="ring" style="--p:${pct}" role="img" aria-label="${pct}% installed"><b>${label??`${pct}%`}</b></div>`; }
+let openKit="";
+let kitBusy="";
+let kitNotes={};
+function kitUpdates(kit,installed){
+  return (kit.software_ids||[]).map(id=>installed.get(id)).filter(a=>a&&a.update_status==="update_available");
+}
+function renderToolkits(){
+  if(!setupData){return noRuntime();}
+  const kits=setupData.toolkits?.toolkits||[];
+  const items=new Map((setupData.catalog?.items||[]).map(x=>[x.id,x]));
+  const installed=installedByCatalog();
+  const families=["all",...[...new Set(kits.map(k=>k.job_family||"Other"))].sort()];
+  const q=kitSearch.toLowerCase();
+  const shown=kits.filter(k=>kitFamily==="all"||(k.job_family||"Other")===kitFamily).filter(k=>!q||`${k.name} ${k.description} ${k.job_family}`.toLowerCase().includes(q));
+  return `${pageHead("Job toolkits","Hand-picked sets of tools for a kind of work. Pick one and I will build it.")}
+    <div class="filterRow"><input id="kitSearch" type="search" placeholder="Search toolkits" value="${escapeHtml(kitSearch)}" aria-label="Search toolkits">${families.map(f=>`<button class="chipBtn ${kitFamily===f?"active":""}" data-kit-family="${escapeHtml(f)}">${f==="all"?"All":escapeHtml(f)}</button>`).join("")}</div>
+    <div class="kitGrid">${shown.map(k=>{const p=kitProgress(k,installed);return `<article class="kitCard" data-family="${escapeHtml((k.job_family||"Other").toLowerCase().replace(/[^a-z]+/g,"-"))}">
+      <header>${ring(p.pct)}<div><span class="familyTag">${escapeHtml(k.job_family||"Other")}</span><h3>${escapeHtml(k.name)}</h3></div><button class="recycleBtn ${kitBusy===k.id?"spin":""}" data-kit-update="${escapeHtml(k.id)}" title="Check and update this toolkit" aria-label="Update ${escapeHtml(k.name)}" ${p.have?"":"disabled"}>♻</button></header>
+      <p>${escapeHtml(k.description)}</p>
+      <small>${p.total} tools · ${p.have} already installed</small>
+      ${kitNotes[k.id]?`<p class="kitNote" role="status">${escapeHtml(kitNotes[k.id])}</p>`:""}
+      <button class="btn ghost small seeTools" data-kit-open="${escapeHtml(k.id)}" aria-expanded="${openKit===k.id}">▸ See the ${p.total} tools</button>
+      ${openKit===k.id?`<div class="kitOverlay" role="dialog" aria-label="${escapeHtml(k.name)} tools"><div class="kitOverlayTop"><b>${escapeHtml(k.name)}</b><button class="btn ghost small" data-kit-close="1">Close ✕</button></div><ul class="toolList">${(k.software_ids||[]).map(id=>{const a=installed.get(id);const vs=a?versionState({...a,version:a.installed_version}):null;return `<li class="${a?"have":""}"><span>${escapeHtml(items.get(id)?.name||id)}</span><small>${a?escapeHtml(shortVersion(a.installed_version)||"installed")+(vs.key==="update"?` → ${escapeHtml(vs.avail)}`:""):"not installed"}</small></li>`;}).join("")}</ul></div>`:""}
+      <button class="btn primary small" data-kit-start="${escapeHtml(k.id)}">${p.pct===100?"Review anyway":"Start with this"}</button>
+    </article>`;}).join("")||`<p class="empty">No toolkits match that search.</p>`}</div>`;
+}
+
+// ---------- Catalog ----------
+function renderCatalog(){
+  if(!setupData){return noRuntime();}
+  const items=setupData?.catalog?.items||[];
+  const installed=installedByCatalog();
+  const categories=["all",...new Set(items.map(x=>x.category||"other"))].sort();
+  const q=catalogSearch.toLowerCase();
+  const visible=items.filter(x=>catalogCategory==="all"||(x.category||"other")===catalogCategory).filter(x=>!q||`${x.name} ${x.category||""} ${(x.capabilities||[]).join(" ")}`.toLowerCase().includes(q));
+  const n=selectionCount();
+  return `${pageHead("Software & CLI catalog","Approved software and CLI catalog. Every entry has a reviewed package identity.")}
+    <div class="filterRow"><input id="catalogSearch" type="search" placeholder="Search Git, Python, Docker, security…" value="${escapeHtml(catalogSearch)}" aria-label="Search tools"><select id="catalogCategorySelect" aria-label="Category">${categories.map(c=>`<option value="${escapeHtml(c)}" ${catalogCategory===c?"selected":""}>${escapeHtml(c==="all"?"All categories":c.replaceAll("-"," "))}</option>`).join("")}</select><span class="count">${visible.length} of ${items.length}</span></div>
+    <div class="catList">${visible.map(x=>{const inst=installed.get(x.id);const v=inst?.installed_version;return `<label class="catRow ${selectedSoftwareIds.has(x.id)?"isPicked":""}">
+      <input type="checkbox" data-software-id="${escapeHtml(x.id)}" ${selectedSoftwareIds.has(x.id)?"checked":""}>
+      <span class="catName"><b>${escapeHtml(x.name)}</b><small>${escapeHtml(x.winget_id||"Manual review")}</small></span>
+      <span class="tag">${escapeHtml((x.category||"software").replaceAll("-"," "))}</span>
+      <span class="lic">${escapeHtml((x.license||"license review").replaceAll("_"," "))}</span>
+      <span class="inst ${inst?"yes":""}" ${v?`title="${escapeHtml(v)}"`:""}>${inst?`<i></i>${v?escapeHtml(shortVersion(v)):"Installed"}${(()=>{const vs=versionState({...inst,version:v});return vs.key==="update"?` <em class="newer">→ ${escapeHtml(vs.avail)}</em>`:vs.key==="current"?` <em class="ok">up to date</em>`:"";})()}`:`<em class="none">${x.winget_id?"not installed":""}</em>`}</span>
+    </label>`;}).join("")||`<p class="empty">Nothing matches that search.</p>`}</div>
+    ${n?`<div class="stickyBar"><span><b>${n}</b> ${n===1?"item":"items"} in your setup</span><button id="addToSetup" class="btn primary">Continue to setup →</button></div>`:""}`;
+}
+
+
+// ---------- Installed software: the panda's inventory room ----------
+function invRows(){
+  const q=invSearch.toLowerCase();
+  return softwareInventory.map((a,i)=>({a,i,cat:softwareCategory(a)})).filter(({a,cat})=>{
+    if(invFilter==="managed"&&!a.catalog_id){return false;}
+    if(invFilter==="updates"&&a.update_status!=="update_available"){return false;}
+    if(invFilter==="apps"&&a.inventory_kind!=="application_candidate"){return false;}
+    if(invFilter==="components"&&(a.catalog_id||a.inventory_kind==="application_candidate")){return false;}
+    if(invFilter==="unknown"&&!(a.catalog_id&&!["current","update_available"].includes(a.update_status))){return false;}
+    if(invCategory!=="all"&&cat!==invCategory){return false;}
+    return !q||`${a.name||""} ${a.publisher||""} ${a.version||""}`.toLowerCase().includes(q);
+  });
+}
+function invSteps(){
+  const sm=softwareIntelligence?.summary||{};
+  if(!softwareIntelligence){return [{key:"wait",filter:"all",topic:"SCANNING",count:"…",text:"Give me a moment. I am still going through your software."}];}
+  const upd=softwareInventory.filter(a=>a.update_status==="update_available");
+  const names=upd.slice(0,4).map(a=>a.name).join(", ");
+  const detected=Number(sm.detected)||softwareInventory.length;
+  const updates=Number(sm.updates_available)||upd.length;
+  const unknown=Number(sm.unknown)||0;
+  const apps=Number(sm.unmatched_unique_applications??sm.unmatched_application_candidates??sm.unmatched)||0;
+  const managed=Number(sm.catalog_matched)||softwareInventory.filter(a=>a.catalog_id).length;
+  return [
+    {key:"all",filter:"all",topic:"INVENTORY",count:String(detected),text:`Welcome to my office. I read through all ${detected} things on your computer. Let me tell you what matters.`},
+    {key:"updates",filter:"updates",topic:"UPDATES",count:String(updates),text:updates?`${updates} ${updates===1?"tool has":"tools have"} an update ready${names?`: ${names}${upd.length>4?" and more":""}`:""}. See results below.`:"Nothing I manage needs an update right now."},
+    {key:"unknown",filter:"unknown",topic:"UNKNOWN",count:String(unknown),text:`${unknown} ${unknown===1?"tool has":"tools have"} a version I could not confirm. Unknown never means current. See results below.`},
+    {key:"apps",filter:"apps",topic:"UNREVIEWED",count:String(apps),text:`${apps} apps are not in my approved catalog. I will not touch them unless you ask. See results below.`},
+    {key:"managed",filter:"managed",topic:"MANAGED",count:String(managed),text:`${managed} are tools I can install, update, and remove for you. See results below.`},
+    {key:"end",filter:"all",topic:"ALL DONE",count:"✓",text:"That is everything I read. Search the scroll below yourself, or ask me again anytime."}
+  ];
+}
+function applyInvStep(index){
+  const steps=invSteps();
+  invStep=Math.max(0,Math.min(index,steps.length-1));
+  invFilter=steps[invStep].filter; invSelected=null; invPull=true; invLimit=80;
+}
+function finishInvTour(){
+  invTourOn=false; writePref("inventoryTourSeen",true);
+  applyInvStep(invSteps().length-1);
+}
+function renderInventoryDetail(){
+  const app=invSelected===null?null:softwareInventory[invSelected];
+  if(!app){return "";}
+  const managed=!!app.catalog_id;
+  return `<div class="invDetail"><div class="invDetailTop"><h3>${escapeHtml(app.name||"Unknown software")}</h3><button id="closeInvDetail" class="btn ghost small">Close</button></div>
+    <dl><div><dt>Category</dt><dd>${escapeHtml(softwareCategory(app))}</dd></div><div><dt>Installed version</dt><dd title="${escapeHtml(app.version||"")}">${escapeHtml(shortVersion(app.version)||"Unknown")}</dd></div><div><dt>Available version</dt><dd>${escapeHtml(shortVersion(app.available_version)||"Unknown")}</dd></div><div><dt>Update status</dt><dd>${escapeHtml(versionState(app).label)}</dd></div><div><dt>Installed by AssembleLink</dt><dd>${(()=>{const h=lastInstallByWingetId(installHistory).get(String(app.winget_id||"").toLowerCase());return h?escapeHtml(`${humanStatus(h.status)} · ${formatWhen(h.completed_utc)}`):"No record";})()}</dd></div><div><dt>Publisher</dt><dd>${escapeHtml(app.publisher||"Unknown")}</dd></div><div><dt>Catalog identity</dt><dd>${escapeHtml(app.winget_id||app.catalog_id||"Unmatched")}</dd></div><div><dt>Provider state</dt><dd>${escapeHtml(humanStatus(app.provider_status||"not checked"))}</dd></div><div><dt>Inventory class</dt><dd>${escapeHtml(humanStatus(app.inventory_kind||"unclassified"))}</dd></div><div><dt>Catalog action</dt><dd>${escapeHtml(humanStatus(app.catalog_action||"review"))}</dd></div></dl>
+    <div class="invActions">${app.update_status==="update_available"?`<button class="btn primary small" data-go="updates">Review update</button>`:""}<button class="btn secondary small" data-find-catalog="${escapeHtml(app.name||"")}">Find in catalog</button>${managed?`<button class="btn danger small" data-uninstall-search="${escapeHtml(app.name||"")}">Uninstall…</button>`:""}</div>
+    <p class="fine">Executable uninstall commands and full install paths are intentionally excluded from this view.</p></div>`;
+}
+function renderInventory(){
+  const s=softwareIntelligence?.summary||{};
+  const rows=invRows();
+  const cats=["all","Creative","Game Dev","Security","Development","AI / GPU","Drivers / Hardware","Runtime / SDK","Launcher / Game","Everyday Apps","Other"];
+  const managed=softwareInventory.filter(a=>a.catalog_id).length;
+  const apps=Number(s.unmatched_unique_applications??s.unmatched_application_candidates??s.unmatched)||0;
+  const comps=Number(s.unmatched_components)||0;
+  const updates=Number(s.updates_available)||0;
+  const unknown=Number(s.unknown)||0;
+  const steps=invSteps();
+  const step=steps[Math.min(invStep,steps.length-1)];
+  const pull=invPull; invPull=false;
+  const shown=Math.min(rows.length,invLimit);
+  const filters=[["all",`All ${softwareInventory.length}`],["managed",`Managed ${managed}`],["updates",`Needs update ${updates}`],["apps",`Apps to review ${apps}`],["components",`Components ${comps}`],["unknown",`Unknown version ${unknown}`]];
+  const canTour=steps.length>1;
+  const foot=canTour?(invTourOn
+    ?`<span class="vnDots" aria-hidden="true">${steps.map((_,k)=>`<i class="${k===invStep?"on":""}"></i>`).join("")}</span><span class="vnBtns"><button id="invSkip" class="btn ghost small">Skip tour</button>${invStep>0?`<button id="invBack" class="btn secondary small">◂ Back</button>`:""}<button id="invNext" class="btn primary small">${invStep>=steps.length-1?"Done":"Next ▸"}</button></span>`
+    :`<span class="askRow"><button class="chipBtn" data-panda-ask="updates">What needs updating?</button><button class="chipBtn" data-panda-ask="managed">What can you manage?</button><button class="chipBtn" data-panda-ask="apps">Apps I have not reviewed</button><button class="chipBtn" data-panda-ask="unknown">Unknown versions</button><button id="invReplay" class="chipBtn">Replay the tour</button></span>`):"";
+  return `${pageHead("Installed software","Everything I found on this computer, kept in my inventory room.",`<button id="refreshSoftware" class="btn secondary">Rescan</button>`)}
+  ${statusLine()}
+  <section class="room office" data-step="${escapeHtml(step.key)}" aria-label="The panda's office">${roomSvg()}
+    <div class="officeFigure">${readerSvg(step.topic,step.count,pull)}</div>
+    <div class="vnBox invBox" aria-live="polite"><span class="vnName">Panda</span>
+      <p class="vnText ${pull?"fresh":""}">${escapeHtml(step.text)}</p>
+      ${step.filter!=="all"?`<p class="seeBelow">↓ results are in the scroll below</p>`:""}
+      <div class="vnFoot">${foot}</div>
+    </div>
+  </section>
+  <section class="scrollWrap" aria-label="Inventory scroll">
+    <div class="rod" aria-hidden="true"></div>
+    <div class="scrollPaper">
+      <div class="scrollTools"><input id="softwareSearch" type="search" placeholder="Search software, publisher, version…" value="${escapeHtml(invSearch)}" aria-label="Search installed software"><select id="invCategory" aria-label="Category">${cats.map(c=>`<option ${invCategory===c?"selected":""} value="${escapeHtml(c)}">${c==="all"?"All categories":escapeHtml(c)}</option>`).join("")}</select></div>
+      <div class="filterRow tight">${filters.map(([id,label])=>`<button class="chipBtn ${invFilter===id?"active":""}" data-inv-filter="${id}">${escapeHtml(label)}</button>`).join("")}</div>
+      <p class="count">Showing ${shown} of ${rows.length} matching · ${softwareInventory.length} detected</p>
+      ${renderInventoryDetail()}
+      <div class="invHead" aria-hidden="true"><span>Software</span><span>Type</span><span>Installed</span><span>Available</span><span>Status</span></div>
+      <div class="scrollBody">${rows.slice(0,shown).map(({a,i,cat})=>`<button class="invRow ${invSelected===i?"on":""}" data-inv-index="${i}"><span class="invName"><b>${escapeHtml(a.name||"")}</b><small>${escapeHtml(a.publisher||"")}</small></span><span class="tag">${escapeHtml(cat)}</span><span class="invVer" title="${escapeHtml(a.version||"")}">${escapeHtml(shortVersion(a.version))}</span>${(()=>{const vs=versionState(a);return `<span class="invAvail ${vs.cls}" title="${escapeHtml(a.available_version||"")}">${escapeHtml(vs.avail)}</span><span class="invStat ${vs.cls}">${escapeHtml(vs.label)}</span>`;})()}</button>`).join("")||`<p class="empty">${softwareInventory.length?"Nothing matches. Try a different filter.":"Run a scan and I will fill this shelf."}</p>`}${rows.length>shown?`<button id="invMore" class="btn ghost small moreRows">Show ${Math.min(100,rows.length-shown)} more</button>`:""}</div>
+    </div>
+    <div class="rod" aria-hidden="true"></div>
+  </section>
+  <p class="fine">“Current” requires both a known installed version and a successful approved-provider check. Offline, stale, malformed, or unavailable provider checks stay unknown and never become a false green status.</p>`;
+}
+
+// ---------- Job readiness ----------
+function renderReadiness(){
+  if(!setupData){return noRuntime();}
+  const kits=setupData.toolkits?.toolkits||[];
+  const items=new Map((setupData.catalog?.items||[]).map(x=>[x.id,x]));
+  const installed=installedByCatalog();
+  const rows=kits.map(k=>({k,p:kitProgress(k,installed)}));
+  const groups=[["Ready","ready",rows.filter(r=>r.p.pct===100)],["Almost there","almost",rows.filter(r=>r.p.pct>=50&&r.p.pct<100)],["Getting started","started",rows.filter(r=>r.p.pct>0&&r.p.pct<50)],["Not started","none",rows.filter(r=>r.p.pct===0)]];
+  const ready=groups[0][2].length;
+  const note=softwareIntelligence?"":`<p class="fine">Waiting for the first scan to finish before I can score each toolkit.</p>`;
+  return `${pageHead("Job readiness","How complete each job toolkit is on this computer.")}
+    <section class="readySummary"><div><b data-countup="${ready}" data-count-key="ready">0</b><span>toolkits ready</span></div><div><b>${rows.length}</b><span>toolkits tracked</span></div><div><b>${softwareIntelligence?Number(softwareIntelligence.summary?.catalog_matched)||0:"—"}</b><span>managed tools found</span></div></section>${note}
+    ${groups.filter(g=>g[2].length).map(([label,cls,list])=>`<section class="readyGroup ${cls}"><h3>${label} <small>${list.length}</small></h3><div class="readyGrid">${list.map(({k,p})=>`<article class="readyCard">${ring(p.pct,`${p.have}/${p.total}`)}<div class="readyText"><b>${escapeHtml(k.name)}</b><small>${escapeHtml(k.job_family||"Other")}</small>${p.missing.length?`<p>Missing: ${escapeHtml(p.missing.slice(0,5).map(id=>items.get(id)?.name||id).join(", "))}${p.missing.length>5?` and ${p.missing.length-5} more`:""}</p>`:`<p class="okText">Everything in this toolkit is installed.</p>`}${p.missing.length?`<button class="btn secondary small" data-kit-start="${escapeHtml(k.id)}">Complete this toolkit</button>`:""}</div></article>`).join("")}</div></section>`).join("")}`;
+}
+
+// ---------- Updates ----------
+function renderUpdates(){
+  const list=softwareInventory.filter(a=>a.update_status==="update_available");
+  const vsum=versionSummary(softwareInventory);
+  return `${pageHead("Software updates","Compare what you have with approved sources. Nothing updates without your approval.",`<button id="scanUpdates" class="btn primary">Check for updates and build a plan</button>`)}
+    ${statusLine()}
+    <section class="readySummary" aria-label="Version overview"><div><b>${vsum.current}</b><span>up to date</span></div><div><b>${vsum.update}</b><span>update available</span></div><div><b>${vsum.unknown}</b><span>version unknown</span></div><div><b>${vsum.unmatched}</b><span>not tracked</span></div></section>
+    <section class="card"><h2>${list.length?`${list.length} ${list.length===1?"update is":"updates are"} ready`:"No updates reported"}</h2>
+      ${list.length?table(["Tool","Installed","Available","Source"],list.map(a=>[a.name,shortVersion(a.version),shortVersion(a.available_version)||"—",a.source||a.winget_id||"winget"])):`<p>${softwareIntelligence?"The last scan found nothing newer. Unknown statuses are never treated as current; check Installed software for any unknown versions.":"Run a check and I will tell you what is newer."}</p>`}
+      <p class="fine">I ask Winget about exact approved package identities only. You will see the full plan and approve it before anything changes.</p>
+    </section>`;
+}
+
+// ---------- Install history: what AssembleLink installed and removed ----------
+function renderHistory(){
+  const runs=(installHistory?.runs||[]);
+  const removals=(installHistory?.removals||[]);
+  const real=runs.filter(r=>r.executed);
+  const installedCount=real.reduce((n,r)=>n+(r.results||[]).filter(x=>/^installed|already/.test(x.status||"")).length,0);
+  const intLabel={valid:"Verified",mismatch:"Mismatch — do not trust",unverified:"No integrity file"};
+  return `${pageHead("Install history","What AssembleLink installed and removed on this computer, read from its own sealed records.",`<button id="refreshHistory" class="btn secondary">Refresh</button>`)}
+    <section class="readySummary"><div><b>${real.length}</b><span>install runs</span></div><div><b>${runs.length-real.length}</b><span>dry runs</span></div><div><b>${installedCount}</b><span>tools installed or present</span></div><div><b>${removals.length}</b><span>removals</span></div></section>
+    <section class="card"><p class="statusLine" role="status">${escapeHtml(installHistoryError)}</p>
+      <p class="fine">${escapeHtml(installHistory?.note||"Winget downloads installers to a temporary location and removes them after installing, so no installer files are kept. This list shows what was installed, from which package, and whether each install was verified.")}</p></section>
+    ${runs.length?runs.map(r=>`<section class="card histRun"><h3>${r.executed?"Install run":"Dry run (nothing installed)"} <small>${escapeHtml(formatWhen(r.completed_utc||r.started_utc))}</small></h3>
+      <p class="fine">Record: <b class="int ${escapeHtml(r.integrity)}">${escapeHtml(intLabel[r.integrity]||r.integrity)}</b> · ${escapeHtml(String(r.sha256||"").slice(0,16))}…</p>
+      ${(r.results||[]).length?table(["Tool","Package","Result","Verified"],r.results.map(x=>[x.name||x.id,x.winget_id||"—",humanStatus(x.status||"unknown"),x.verified?(x.source_verified?"Installed, source checked":"Installed"):"Not verified"])):"<p>No tools in this run.</p>"}</section>`).join(""):`<section class="card"><p class="empty">${installHistoryError?"History could not be read.":"No install runs recorded yet. When you set up this computer, each tool and its result will be listed here."}</p></section>`}
+    ${removals.length?`<section class="card"><h3>Removals</h3>${table(["Tool","Package","Result","When"],removals.map(x=>[x.catalog_id,x.winget_id,humanStatus(x.status),formatWhen(x.observed_unix)]))}</section>`:""}`;
+}
+
+// ---------- Drivers ----------
+function renderDrivers(){
+  const head=pageHead("Drivers & hardware","Live inventory of chipset, GPU, network, audio, BIOS, and official vendor support paths.",`<button id="refreshDrivers" class="btn secondary">${driverProfile?"Rescan hardware":"Scan hardware"}</button>`);
+  if(!driverProfile){
+    return `${head}<section class="card"><h2>Safe state</h2><p>Driver execution is disabled until hardware is detected and an official vendor source is verified. AssembleLink will not guess a driver or silently install one.</p><p class="statusLine" role="status">${escapeHtml(driverLoadError)}</p></section>`;
+  }
+  const p=driverProfile.platform||{};
+  const recs=Array.isArray(driverProfile.recommendations)?driverProfile.recommendations:[];
   const graphics=Array.isArray(driverProfile.graphics)?driverProfile.graphics:[];
   const network=Array.isArray(driverProfile.network)?driverProfile.network:[];
   const audio=Array.isArray(driverProfile.audio)?driverProfile.audio:[];
   const errors=Array.isArray(driverProfile.collection_errors)?driverProfile.collection_errors:[];
-
-  return `
-    <section class="hero">
-      <div>
-        <h1>Drivers and vendor setup</h1>
-        <p>Live local inventory of chipset, GPU, network, audio, BIOS, and official vendor support paths. Detection does not claim that a newer driver exists.</p>
-      </div>
-    </section>
-
-    <section class="summaryStrip"><div><b>${graphics.length}</b><span>graphics devices</span></div><div><b>${network.length}</b><span>physical network devices</span></div><div><b>${audio.length}</b><span>audio devices</span></div><div><b>${recs.length}</b><span>support paths</span></div></section>
-
-    <section class="panel">
-      <h2>Platform</h2>
-      ${table(["Component","Detected identity"],[["Computer",`${p.machine_manufacturer||""} ${p.machine_model||""}`.trim()],["Motherboard",`${p.motherboard_vendor||""} ${p.motherboard_product||""}`.trim()],["CPU",p.cpu||"Unknown"],["BIOS",`${p.bios_vendor||""} ${p.bios_version||""}`.trim()]])}
-      <button id="refreshDrivers">Rescan hardware</button><p role="status">${escapeHtml(driverLoadError)}</p>
-    </section>
-
-    <section class="panel">
-      <h2>Detected driver inventory</h2>
-      <h3>Graphics</h3>${table(["Device","Vendor","Installed driver","Device status"],graphics.map(x=>[x.name,x.manufacturer||"—",x.driver_version||"Unknown",x.device_status||"Unknown"]))}
-      <h3>Network</h3>${table(["Device","Vendor","Installed driver","Device status"],network.map(x=>[x.name,x.manufacturer||"—",x.driver_version||"Unknown",x.device_status||"Unknown"]))}
-      <h3>Audio</h3>${table(["Device","Vendor","Installed driver","Device status"],audio.map(x=>[x.name,x.manufacturer||"—",x.driver_version||"Unknown",x.device_status||"Unknown"]))}
-    </section>
-
-    <section class="panel">
-      <h2>Official support paths</h2>
-      ${table(["Component","Why it is shown","Official source","Safety"], recs.map(r=>[
-        r.name || r.id,
-        r.reason || "",
-        `${r.official_vendor||"Vendor"} (${r.official_domain||"official source"}) — ${r.official_direction||""}`,
-        `${r.install_mode||"recommend_only"}; update ${r.update_status||"not checked"}`
-      ]))}
-    </section>
-
-    <section class="panel">
-      <h2>Safety policy</h2>
-      <p>Drivers and BIOS remain recommendation-only. Installed versions are inventory evidence, not proof that an update exists. Any future installation requires administrator approval, an official vendor source, a restore point, and post-install device verification.</p>
-      <p>${errors.length?`${errors.length} hardware data sources were unavailable, so this scan is partial.`:"Hardware collection completed without reported source failures."}</p>
-    </section>
-  `;
-}
-function renderGenericPage(title, text){
-  return `
-    <section class="hero">
-      <div>
-        <h1>${escapeHtml(title)}</h1>
-        <p>${escapeHtml(text)}</p>
-      </div>
-    </section>
-    <section class="panel">
-      <p>No current local evidence is available for this view.</p>
-    </section>
-  `;
+  const dev=x=>[x.name,x.manufacturer||"—",shortVersion(x.driver_version)||"Unknown",x.device_status||"Unknown"];
+  return `${head}<p class="statusLine" role="status">${escapeHtml(driverLoadError)}</p>
+    <section class="readySummary"><div><b>${graphics.length}</b><span>graphics devices</span></div><div><b>${network.length}</b><span>network devices</span></div><div><b>${audio.length}</b><span>audio devices</span></div><div><b>${recs.length}</b><span>support paths</span></div></section>
+    <section class="card"><h2>Platform</h2>${table(["Component","Detected identity"],[["Computer",`${p.machine_manufacturer||""} ${p.machine_model||""}`.trim()],["Motherboard",`${p.motherboard_vendor||""} ${p.motherboard_product||""}`.trim()],["CPU",p.cpu||"Unknown"],["BIOS",`${p.bios_vendor||""} ${p.bios_version||""}`.trim()]])}</section>
+    <section class="card"><h2>Detected driver inventory</h2>
+      <details open><summary>Graphics (${graphics.length})</summary>${table(["Device","Vendor","Installed driver","Status"],graphics.map(dev))}</details>
+      <details><summary>Network (${network.length})</summary>${table(["Device","Vendor","Installed driver","Status"],network.map(dev))}</details>
+      <details><summary>Audio (${audio.length})</summary>${table(["Device","Vendor","Installed driver","Status"],audio.map(dev))}</details></section>
+    <section class="card"><h2>Official support paths</h2>${table(["Component","Why it is shown","Official source","Safety"],recs.map(r=>[r.name||r.id,r.reason||"",`${r.official_vendor||"Vendor"} (${r.official_domain||"official source"}) — ${r.official_direction||""}`,`${r.install_mode||"recommend_only"}; update ${r.update_status||"not checked"}`]))}</section>
+    <section class="card"><h2>Safety policy</h2><p>Drivers and BIOS remain recommendation-only. Installed versions are inventory evidence, not proof that an update exists. Any future installation requires administrator approval, an official vendor source, a restore point, and post-install device verification.</p><p>${errors.length?`${errors.length} hardware data sources were unavailable, so this scan is partial.`:"Hardware collection completed without reported source failures."}</p></section>`;
 }
 
-function renderPanel(){
-  if(selectedCapabilityId){ return renderCapabilityDetail(); }
-
-  if(activeTab === "home"){ return renderHome(); }
-  if(activeTab === "stacks"){ return renderStacks(); }
-  if(activeTab === "software"){ return renderSoftware(); }
-  if(activeTab === "licensing"){ return renderLicensing(); }
-  if(activeTab === "drivers"){ return renderDrivers(); }
-  if(activeTab === "export"){ return renderExport(); }
-  if(activeTab === "receipts"){ return renderReceipts(); }
-
-  return renderHome();
+// ---------- Logs ----------
+function renderBlueprints(){
+  return `${pageHead("Blueprints / Rebuild","Save this computer as a blueprint, or rebuild from one.")}${statusLine()}
+  <div class="twoCol">
+    <section class="card"><h2>Export this machine</h2><p>Create a verified rebuild blueprint from every currently installed application that matches an approved AssembleLink catalog identity. Unmatched applications are counted but never converted into guessed installers.</p><button id="exportMachineBlueprint" class="btn primary">Export this machine blueprint</button><p class="fine">The blueprint contains catalog IDs and setup policy—not personal files, secrets, arbitrary commands, or installer URLs. A matching SHA-256 sidecar and receipt are created with it.</p></section>
+    <section class="card"><h2>Restore a verified blueprint</h2><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json" aria-label="Blueprint path"><button id="importBlueprint" class="btn primary">Validate and review blueprint</button></section>
+  </div>`;
 }
-function render(){
-  const el = document.getElementById("app");
-  if(!el){
-    document.body.innerHTML = "<pre>APP_ROOT_MISSING</pre>";
-    return;
+function renderReceipts(){
+  const summary=receiptIndex?.summary||{total:0,valid:0,unverified:0,failed:0};
+  const rows=(receiptIndex?.items||[]).map(item=>[item.name,item.schema,humanStatus(item.integrity),`${Math.max(0,Number(item.bytes)||0).toLocaleString()} bytes`,item.modified_unix?new Date(item.modified_unix*1000).toLocaleString():"Unknown",item.sha256?`${item.sha256.slice(0,16)}…`:"—"]);
+  return `${pageHead("Receipts","Local evidence for setup runs and other machine operations. AssembleLink verifies adjacent SHA-256 files before showing evidence as valid.",`<button id="refreshReceipts" class="btn secondary">Refresh evidence</button>`)}
+    <section class="readySummary"><div><b>${summary.total}</b><span>receipts</span></div><div><b>${summary.valid}</b><span>integrity valid</span></div><div><b>${summary.unverified}</b><span>legacy / unverified</span></div><div><b>${summary.failed}</b><span>integrity failures</span></div></section>
+    <section class="card"><p class="statusLine" role="status">${escapeHtml(receiptLoadError)}</p>${rows.length?table(["Receipt","Schema","Integrity","Size","Created","SHA-256"],rows):"<p>No local receipts have been created yet. Completing a setup or export operation will create evidence here.</p>"}<p class="fine"><b>Unverified</b> means an older receipt has no integrity sidecar. <b>Mismatch</b>, <b>malformed sidecar</b>, and <b>too large</b> are failures and must not be trusted.</p></section>`;
+}
+function renderProof(){
+  return `${pageHead("Workstation proof","A sealed snapshot of this computer's hardware, drivers, software, and catalog integrity.")}${statusLine()}${renderProofPanel()}${renderSystemProfile()}`;
+}
+function renderProject(){
+  return `${pageHead("Analyze a project","Point me at a folder and I will tell you which tools it needs.")}${statusLine()}<section class="card">${renderRepositoryAnalyzer()}</section>`;
+}
+function renderRepositoryAnalyzer(){
+  const result=repositoryAnalysis;
+  return `<h2>Analyze a development project</h2><p>Choose a local project folder. AssembleLink reads supported top-level manifests, maps required runtimes to approved catalog identities, and creates sealed evidence. It never executes project files.</p><div class="repositoryPath"><input id="repositoryPath" value="${escapeHtml(repositoryPath)}" placeholder="C:\\dev\\my-project" autocomplete="off" aria-label="Project folder"><button id="analyzeRepository" class="btn primary">Analyze project</button></div>${result?`<div class="repositoryResult"><h3>${escapeHtml(result.repository?.name||"Project")} · ${escapeHtml(result.summary?.status||"analyzed")}</h3><p>${escapeHtml(result.summary?.recognized_manifests||0)} manifests · ${escapeHtml(result.summary?.resolved_catalog_items||0)} approved tools recommended</p>${(result.requirements||[]).length?table(["Requirement","Evidence","Version","Approved tools"],result.requirements.map(x=>[x.kind,x.evidence,x.version_constraint||"Review latest compatible",(x.catalog_ids||[]).join(", ")])):`<p>No supported top-level manifests were found.</p>`}${(result.recommended_software_ids||[]).length?`<button id="useRepositoryRecommendations" class="btn primary">Review recommended setup</button>`:""}</div>`:""}`;
+}
+
+// ---------- Help ----------
+function renderHow(){
+  const steps=[["1","Tell me about the computer","Desktop or laptop, and how much storage the plan may use."],["2","Pick your tools","Choose job toolkits, or add single tools from the approved catalog."],["3","Review the plan","I show every tool, its size, and its package identity. Nothing has been installed yet."],["4","Approve and watch","You approve once. I install tool by tool, verify each one, and save a receipt."]];
+  return `${pageHead("How it works","Four calm steps, and you stay in charge.")}
+    <section class="howGrid">${steps.map(([n,t,d])=>`<article class="howCard"><b>${n}</b><h3>${t}</h3><p>${d}</p></article>`).join("")}</section>
+    <section class="card"><h2>Where to find things</h2><ul class="plainList"><li><b>File</b> opens setup, toolkits, the catalog, your installed software, and job readiness.</li><li><b>Logs</b> keeps blueprints, receipts, and workstation proof.</li><li><b>Drivers</b> shows hardware, driver inventory, and software updates.</li><li><b>Help</b> explains how I work and lets you uninstall programs, or me.</li></ul><button class="btn primary" data-go="wizard">Start setting up</button></section>`;
+}
+function renderSafety(){
+  const items=[["Approval first","Nothing installs, updates, or uninstalls until you approve the exact list."],["Approved sources only","I use reviewed catalog entries and exact Winget package identities. I never guess an installer or run a download from a project."],["Project files are read, never run","Analyzing a folder only reads manifests."],["Drivers and BIOS stay manual","I recommend official vendor pages; I do not install drivers silently."],["Receipts you can verify","Every machine operation writes a receipt with a SHA-256 hash."],["Windows 10 and 11 (64-bit) only","macOS and Linux are not supported."]];
+  return `${pageHead("Safety promises","What I will never do.")}<section class="card"><ul class="promiseList">${items.map(([t,d])=>`<li><i aria-hidden="true">✓</i><div><b>${t}</b><p>${d}</p></div></li>`).join("")}</ul></section>`;
+}
+function renderAbout(){
+  return `${pageHead("About & diagnostics")}
+    <section class="card"><h2>AssembleLink</h2><p>Version 0.1.0 · MIT license · Windows 10/11 x64 · local-first, approval-bound setup with SHA-256 receipts.</p><p class="fine">Source: github.com/ScrappyHub/assemblelink</p></section>
+    <section class="card"><h2>Technical details</h2><p>Only needed when something goes wrong.</p><button id="toggleTechnical" class="btn secondary small">${showTechnical?"Hide":"Show"} technical details</button>${showTechnical?`<pre class="techPre">${escapeHtml(JSON.stringify(graph,null,2))}</pre>`:""}</section>`;
+}
+
+// ---------- Uninstall ----------
+function renderUninstall(){
+  const catalog=new Map((setupData?.catalog?.items||[]).map(x=>[x.id,x]));
+  const q=uninstallSearch.toLowerCase();
+  const rows=[...installedByCatalog().values()].filter(x=>catalog.get(x.catalog_id)?.winget_id).filter(x=>!q||`${x.name||""} ${x.catalog_id}`.toLowerCase().includes(q)).sort((a,b)=>String(a.name||a.catalog_id).localeCompare(String(b.name||b.catalog_id)));
+  if(selfUninstalling){
+    return `<section class="splash"><div class="splashPanda" data-pose="sad">${pandaSvg("sad")}</div><h1>Goodbye for now</h1><p class="lead">AssembleLink is removing itself silently. This window will close in a moment.</p></section>`;
   }
+  return `${pageHead("Uninstall","Remove programs I manage, or remove AssembleLink itself. Both run silently.")}
+    <section class="card"><h2>Uninstall a program</h2>
+      <p>Only tools in the approved catalog can be removed here. For any other app, use Windows Settings → Apps → Installed apps.</p>
+      <input id="uninstallSearch" type="search" placeholder="Search installed tools" value="${escapeHtml(uninstallSearch)}" aria-label="Search installed tools">
+      ${uninstallMessage?`<p class="statusLine" role="status">${escapeHtml(uninstallMessage)}</p>`:""}
+      <div class="uninstallList">${rows.map(x=>`<div class="uninstallRow"><span class="catName"><b>${escapeHtml(x.name||x.catalog_id)}</b><small title="${escapeHtml(x.installed_version||"")}">${escapeHtml(shortVersion(x.installed_version)||"version unknown")} · ${escapeHtml(catalog.get(x.catalog_id).winget_id)}</small></span><button class="btn danger small" data-uninstall="${escapeHtml(x.catalog_id)}" ${uninstallBusy?"disabled":""}>${uninstallBusy===x.catalog_id?"Removing…":"Uninstall"}</button></div>`).join("")||`<p class="empty">${softwareIntelligence?"No managed tools match.":"Waiting for the first scan."}</p>`}</div>
+      <p class="fine">A confirmation is shown first. Removal runs without installer windows, and a receipt with a SHA-256 hash is saved. A program that is running or needs administrator approval may refuse; nothing else is touched.</p>
+    </section>
+    <section class="card dangerCard"><h2>Uninstall AssembleLink</h2>
+      <p>This closes AssembleLink and removes it silently, with no installer windows or prompts. Programs I installed for you stay installed. Receipts and blueprints stay in your user profile.</p>
+      <label class="ack"><input id="selfAck" type="checkbox" ${selfUninstallAck?"checked":""}> I understand AssembleLink will close and remove itself.</label>
+      <button id="uninstallSelf" class="btn danger" ${selfUninstallAck?"":"disabled"}>Uninstall AssembleLink</button>
+    </section>`;
+}
 
-  el.innerHTML = `
-    <main class="shell">
-      <aside class="sidebar">
-        <div class="brandRow"><span class="brandPanda">${pandaSvg("idle","AssembleLink")}</span><div><div class="brand">AssembleLink</div><div class="subtitle">Set up, inspect, and rebuild this machine</div></div></div>
-        <nav class="primaryNav">
-          <small>GET STARTED</small>
-          ${nav("home","Overview")}
-          ${setupNav("setup","Job toolkits",String(setupData?.toolkits?.toolkits?.length||""))}
-          ${setupNav("browse","Software & CLI catalog",String(setupData?.catalog?.items?.length||""))}
-          ${setupNav("update","Updates",softwareIntelligence?.summary?.updates_available?String(softwareIntelligence.summary.updates_available):"")}
-          ${setupNav("repository","Analyze a project","")}
-          <small>THIS MACHINE</small>
-          ${nav("software","Installed software")}
-          ${nav("stacks","Job readiness")}
-          ${nav("drivers","Drivers")}
-          <small>PORTABILITY & TRUST</small>
-          ${nav("export","Blueprints / Rebuild")}
-          ${nav("receipts","Receipts")}
-        </nav>
-        <div class="sidebarStatus"><span class="statusDot ${softwareIntelligence?"ready":softwareScanError?"warn":"working"}"></span><div><b>${softwareIntelligence?`${softwareIntelligence.summary.detected} detected`:softwareScanError?"Scan needs attention":"Scanning machine"}</b><small>${softwareIntelligence?`${softwareIntelligence.summary.catalog_matched} catalog matched · ${softwareIntelligence.summary.unknown} unknown`:softwareScanError?"Open the dashboard to retry":"Local inventory is loading"}</small></div></div>
-      </aside>
-      <section class="workspace">
-        ${renderPanel()}
-        <footer class="techFooter">
-          <button id="toggleTechnical" class="ghostBtn">${showTechnical ? "Hide" : "Show"} technical details</button>
-          ${showTechnical ? `<pre>${escapeHtml(JSON.stringify(graph,null,2))}</pre>` : ""}
-        </footer>
-      </section>
-    </main>
-  `;
 
-  const viewKey=`${activeTab}|${sidebarContext}|${setupMode}|${selectedCapabilityId||""}`;
-  if(viewKey!==lastViewKey){el.querySelector(".workspace")?.classList.add("viewEnter");}
+// ---------- router + render ----------
+function renderPanel(){
+  switch(view){
+    case "wizard": return renderWizard();
+    case "toolkits": return renderToolkits();
+    case "catalog": return renderCatalog();
+    case "inventory": return renderInventory();
+    case "readiness": return renderReadiness();
+    case "project": return renderProject();
+    case "blueprints": return renderBlueprints();
+    case "receipts": return renderReceipts();
+    case "history": return renderHistory();
+    case "proof": return renderProof();
+    case "drivers": return renderDrivers();
+    case "updates": return renderUpdates();
+    case "how": return renderHow();
+    case "safety": return renderSafety();
+    case "uninstall": return renderUninstall();
+    case "about": return renderAbout();
+    default: return renderHome();
+  }
+}
+
+function render(){
+  const el=document.getElementById("app");
+  if(!el){document.body.innerHTML="<pre>APP_ROOT_MISSING</pre>";return;}
+  const keepScroll=el.querySelector(".scrollBody")?.scrollTop||0;
+  el.innerHTML=`<div class="appShell">${renderMenuBar()}<main class="page view-${escapeHtml(view)}" id="main">${errorText?`<section class="card"><h2>Something went wrong</h2><pre class="techPre">${escapeHtml(errorText)}</pre></section>`:renderPanel()}</main>${welcomeOpen&&view==="home"?renderWelcome():""}</div>`;
+  const viewKey=`${view}|${wizardStep}`;
+  if(viewKey!==lastViewKey){el.querySelector(".page")?.classList.add("viewEnter");}
   lastViewKey=viewKey;
+  const body=el.querySelector(".scrollBody"); if(body){body.scrollTop=keepScroll;}
   runCountUps();
-  document.querySelectorAll("[data-tab]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      activeTab = btn.getAttribute("data-tab");
-      sidebarContext=activeTab==="home"?"overview":"";
-      selectedCapabilityId = null;
-      render();
-    });
-  });
-  document.querySelectorAll("[data-setup-jump]").forEach(btn=>btn.addEventListener("click",()=>{activeTab="home";selectedCapabilityId=null;setupMode=btn.getAttribute("data-setup-jump")||"setup";sidebarContext=setupMode;setupPlan=null;setupResult=null;setupProgress=null;render();}));
+}
 
-  document.querySelectorAll("[data-home-action]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      activeHomeAction = btn.getAttribute("data-home-action");
-      render();
-    });
-  });
+function refocus(id,pos){
+  render();
+  const next=document.getElementById(id);
+  if(next){next.focus();try{next.setSelectionRange(pos,pos);}catch(_e){/* not a text field */}}
+}
 
-  document.querySelectorAll("[data-setup-mode]").forEach(btn=>btn.addEventListener("click",()=>{
-    setupMode=btn.getAttribute("data-setup-mode");sidebarContext=setupMode; setupPlan=null; setupResult=null; setupProgress=null; render();
-  }));
-  const updateSelectionSummary=()=>{
-    const count=selectedToolkitIds.size+selectedSoftwareIds.size;
-    const summary=document.querySelector(".selectionSummary span");
-    const review=document.getElementById("reviewSetup");
-    const hint=document.querySelector(".selectionHint");
-    if(summary){summary.textContent=`${count} ${count===1?"selection":"selections"} ready to review`;}
-    if(review){review.disabled=count===0;}
-    if(hint){hint.hidden=count>0;}
-  };
-  document.querySelectorAll("[data-toolkit-id]").forEach(input=>input.addEventListener("change",()=>{
-    const id=input.getAttribute("data-toolkit-id"); input.checked?selectedToolkitIds.add(id):selectedToolkitIds.delete(id); setupPlan=null; render();
-  }));
-  document.querySelectorAll("[data-software-id]").forEach(input=>input.addEventListener("change",()=>{
-    const id=input.getAttribute("data-software-id"); input.checked?selectedSoftwareIds.add(id):selectedSoftwareIds.delete(id); setupPlan=null; render();
-  }));
-  document.querySelectorAll("[data-machine-type]").forEach(input=>input.addEventListener("change",()=>{
-    machineType=input.getAttribute("data-machine-type")==="laptop"?"laptop":"desktop";
-    if(machineType==="laptop"&&maxAllocationGb===100){maxAllocationGb=50;}
-    if(machineType==="desktop"&&maxAllocationGb===50){maxAllocationGb=100;}
-    setupPlan=null;render();
-  }));
-  const maxAllocationInput=document.getElementById("maxAllocationGb");
-  if(maxAllocationInput){maxAllocationInput.addEventListener("change",()=>{
-    const next=Number(maxAllocationInput.value);
-    maxAllocationGb=Number.isInteger(next)?Math.max(5,Math.min(2048,next)):maxAllocationGb;
-    setupPlan=null;render();
-  });}
-  const catalogSearchInput=document.getElementById("catalogSearch");
-  if(catalogSearchInput){catalogSearchInput.addEventListener("input",()=>{catalogSearch=catalogSearchInput.value;const pos=catalogSearchInput.selectionStart;render();const next=document.getElementById("catalogSearch");next?.focus();next?.setSelectionRange(pos,pos);});}
-  const catalogCategorySelect=document.getElementById("catalogCategorySelect");
-  if(catalogCategorySelect){catalogCategorySelect.addEventListener("change",()=>{catalogCategory=catalogCategorySelect.value||"all";render();});}
-  const editSelection=document.getElementById("editSelection");
-  if(editSelection){editSelection.addEventListener("click",()=>{setupPlan=null;setupResult=null;setupProgress=null;operationMessage="";render();});}
-  const retryScan=document.getElementById("retryScan");
-  if(retryScan){retryScan.addEventListener("click",async()=>{
-    softwareScanError="";softwareIntelligence=null;render();
-    try{await refreshSoftwareIntelligence(true);graph=buildLiveGraph();}catch(err){softwareScanError=String(err);}
+async function approveAndRun(){
+  if(setupRunning){return;}
+  const resuming=setupRecovery?.available&&setupRecovery.plan?.plan_id===setupPlan?.plan_id;
+  const automatic=(setupPlan?.items||[]).filter(x=>x.mode==="winget");
+  const manual=(setupPlan?.items||[]).filter(x=>x.mode==="manual_review");
+  const approvalLead=resuming?"Resume this exact interrupted setup plan? Completed automatic identities will be checked again before they are skipped.":"Approve this exact setup plan?";
+  const allocationSummary=setupPlan?.allocation?`\n\nMachine: ${setupPlan.machine_profile.machine_type}\nPlanned storage: ${formatAllocation(setupPlan.allocation.estimated_installed_mib)} of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}`:"";
+  const approved=window.confirm(`${approvalLead}${allocationSummary}\n\nAutomatic (${automatic.length}):\n• ${automatic.map(x=>x.name).join("\n• ")}\n\nManual follow-up (${manual.length}):\n• ${manual.map(x=>x.name).join("\n• ")}\n\nA durable receipt and integrity hash will be created.`);
+  if(!approved){operationMessage="Setup cancelled. Nothing was installed.";render();return;}
+  const planId=setupPlan.plan_id;
+  setupRunning=true; wizardStep=4;
+  if(!resuming){setupProgress={schema:"assemblelink.setup_execution.progress.v1",plan_id:planId,status:"running",total:setupPlan.item_count,completed:0,results:[]};}
+  operationMessage=resuming?"Resuming this computer setup. Previous outcomes are being revalidated…":"Setting up this computer. Progress is saved after every tool…";
+  render(); window.scrollTo({top:0});
+  const poll=async()=>{await loadSetupProgress(planId);render();};
+  const progressTimer=window.setInterval(poll,750);
+  void poll();
+  try{
+    const response=resuming?await invokeDesktop("resume_setup",{planId,approved:true}):await invokeDesktop("execute_setup",{planId,approved:true});
+    setupResult=sanitizeStateValue(JSON.parse(response));
+    operationMessage="Setup finished. Refreshing installed software and evidence…";
+  }catch(err){
+    operationMessage=`Setup stopped: ${String(err)}. Refreshing the machine inventory for any completed work…`;
+  }finally{
+    window.clearInterval(progressTimer);
+    await loadSetupProgress(planId);
+    setupRunning=false;
     render();
-  });}
-  const reviewSetup=document.getElementById("reviewSetup");
-  if(reviewSetup){ reviewSetup.addEventListener("click",async()=>{
-    operationMessage="Building a deterministic setup plan…"; setupResult=null; setupProgress=null; render();
-    try{
-      setupPlan=JSON.parse(await invokeDesktop("build_setup_plan",{toolkitIds:[...selectedToolkitIds],softwareIds:[...selectedSoftwareIds],machineType,maxAllocationGib:maxAllocationGb}));
-      operationMessage="Review every tool below. Nothing has been installed.";
-    }catch(err){ operationMessage=String(err); setupPlan=null; }
-    render();
-    document.querySelector(".planPanel")?.scrollIntoView({behavior:window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches?"auto":"smooth",block:"start"});
-  }); }
-  const scanUpdates=document.getElementById("scanUpdates");
-  if(scanUpdates){scanUpdates.addEventListener("click",async()=>{
-    operationMessage="Scanning installed software and checking approved providers…";setupPlan=null;render();
-    try{await refreshSoftwareIntelligence(true);setupPlan=JSON.parse(await invokeDesktop("build_update_plan"));operationMessage=setupPlan.package_manager_available?(setupPlan.item_count?`${setupPlan.item_count} approved updates found.`:"No approved updates were reported. Check unknown statuses before assuming everything is current."):"Winget is unavailable. Install or repair Windows App Installer to check Winget-managed updates.";}
-    catch(err){operationMessage=String(err);}render();
-  });}
-  const repositoryPathInput=document.getElementById("repositoryPath");
-  if(repositoryPathInput){repositoryPathInput.addEventListener("input",()=>{repositoryPath=repositoryPathInput.value;});}
-  const analyzeRepository=document.getElementById("analyzeRepository");
-  if(analyzeRepository){analyzeRepository.addEventListener("click",async()=>{
-    repositoryPath=repositoryPathInput?.value.trim()||"";repositoryAnalysis=null;operationMessage="Reading supported project manifests…";render();
-    try{repositoryAnalysis=sanitizeStateValue(JSON.parse(await invokeDesktop("analyze_repository",{repositoryPath})));operationMessage="Project requirements mapped to the approved catalog. Nothing was installed.";}
-    catch(err){operationMessage=String(err);}render();
-  });}
-  const useRepositoryRecommendations=document.getElementById("useRepositoryRecommendations");
-  if(useRepositoryRecommendations){useRepositoryRecommendations.addEventListener("click",()=>{
-    selectedToolkitIds.clear();selectedSoftwareIds=new Set(repositoryAnalysis?.recommended_software_ids||[]);setupMode="browse";sidebarContext="browse";setupPlan=null;operationMessage="Repository recommendations selected. Choose a machine profile, review storage, then build the plan.";render();
-  });}
-  const refreshSoftware=document.getElementById("refreshSoftware");
-  if(refreshSoftware){refreshSoftware.addEventListener("click",async()=>{
-    operationMessage="Scanning installed software and checking approved providers…";render();
-    try{await refreshSoftwareIntelligence(true);await loadWorkstationAssurance();operationMessage=`Scan complete: ${softwareIntelligence.summary.updates_available} updates, ${softwareIntelligence.summary.unknown} unknown.`;}
-    catch(err){operationMessage=String(err);}render();
-  });}
-  const refreshAssurance=document.getElementById("refreshAssurance");
-  if(refreshAssurance){refreshAssurance.addEventListener("click",async()=>{
-    operationMessage="Rebuilding trusted workstation evidence…";render();
-    try{await refreshSystemProfile();await refreshDriverProfile();await refreshSoftwareIntelligence(true);graph=buildLiveGraph();await loadWorkstationAssurance();await loadReceipts();operationMessage="Workstation proof refreshed and sealed.";}
-    catch(err){workstationAssurance=null;workstationAssuranceError=String(err);operationMessage="Workstation proof could not be completed.";}
-    render();
-  });}
-  const exportBlueprint=document.getElementById("exportBlueprint");
-  if(exportBlueprint){exportBlueprint.addEventListener("click",async()=>{
-    try{operationMessage=`Blueprint exported to ${await invokeDesktop("export_blueprint")}. Keep the matching .sha256 file with it.`;}
-    catch(err){operationMessage=String(err);} render();
-  });}
-  const importBlueprint=document.getElementById("importBlueprint");
-  if(importBlueprint){importBlueprint.addEventListener("click",async()=>{
-    const blueprintPath=document.getElementById("blueprintPath")?.value.trim()||"";
-    operationMessage="Validating blueprint integrity and catalog identities…";render();
-    try{setupPlan=JSON.parse(await invokeDesktop("import_blueprint",{blueprintPath,machineType,maxAllocationGib:maxAllocationGb}));operationMessage="Blueprint verified against this machine profile and allocation limit. Review the resolved setup plan below.";}
-    catch(err){setupPlan=null;operationMessage=String(err);}render();
-  });}
-  const approveSetup=document.getElementById("approveSetup");
-  if(approveSetup){ approveSetup.addEventListener("click",async()=>{
-    if(setupRunning){return;}
-    const resuming=setupRecovery?.available&&setupRecovery.plan?.plan_id===setupPlan?.plan_id;
-    const automatic=(setupPlan?.items||[]).filter(x=>x.mode==="winget");
-    const manual=(setupPlan?.items||[]).filter(x=>x.mode==="manual_review");
-    const approvalLead=resuming?"Resume this exact interrupted setup plan? Completed automatic identities will be checked again before they are skipped.":"Approve this exact setup plan?";
-    const allocationSummary=setupPlan?.allocation?`\n\nMachine: ${setupPlan.machine_profile.machine_type}\nPlanned storage: ${formatAllocation(setupPlan.allocation.estimated_installed_mib)} of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}`:"";
-    const approved=window.confirm(`${approvalLead}${allocationSummary}\n\nAutomatic (${automatic.length}):\n• ${automatic.map(x=>x.name).join("\n• ")}\n\nManual follow-up (${manual.length}):\n• ${manual.map(x=>x.name).join("\n• ")}\n\nA durable receipt and integrity hash will be created.`);
-    if(!approved){ operationMessage="Setup cancelled. Nothing was installed."; render(); return; }
-    const planId=setupPlan.plan_id;
-    setupRunning=true;
-    if(!resuming){setupProgress={schema:"assemblelink.setup_execution.progress.v1",plan_id:planId,status:"running",total:setupPlan.item_count,completed:0,results:[]};}
-    operationMessage=resuming?"Resuming this computer setup. Previous outcomes are being revalidated…":"Setting up this computer. Progress is saved after every tool…"; render(); window.scrollTo({top:0});
-    const poll=async()=>{await loadSetupProgress(planId);render();};
-    const progressTimer=window.setInterval(poll,750);
-    void poll();
-    try{
-      const response=resuming
-        ?await invokeDesktop("resume_setup",{planId,approved:true})
-        :await invokeDesktop("execute_setup",{planId,approved:true});
-      setupResult=sanitizeStateValue(JSON.parse(response));
-      operationMessage="Setup finished. Refreshing installed software and evidence…";
-    }catch(err){
-      operationMessage=`Setup stopped: ${String(err)}. Refreshing the machine inventory for any completed work…`;
-    }finally{
-      window.clearInterval(progressTimer);
-      await loadSetupProgress(planId);
-      setupRunning=false;
-      render();
-      const refreshIssues=[];
-      try{
-        await refreshSoftwareIntelligence(true);
-        graph=buildLiveGraph();
-      }catch(err){
-        refreshIssues.push(`inventory refresh failed: ${String(err)}`);
-      }
-      await loadReceipts();
-      await loadSetupRecovery();
-      if(receiptLoadError){refreshIssues.push(`receipt refresh failed: ${receiptLoadError}`);}
-      if(setupResult){
-        operationMessage=refreshIssues.length
-          ?`Setup completed, but ${refreshIssues.join("; ")}.`
-          :"Setup completed. Installed versions, readiness, and receipts are refreshed.";
-      }else if(refreshIssues.length){
-        operationMessage+=` ${refreshIssues.join("; ")}.`;
-      }
+    const refreshIssues=[];
+    try{await refreshSoftwareIntelligence(true);graph=buildLiveGraph();}
+    catch(err){refreshIssues.push(`inventory refresh failed: ${String(err)}`);}
+    await loadReceipts();await loadInstallHistory();
+    await loadSetupRecovery();
+    if(receiptLoadError){refreshIssues.push(`receipt refresh failed: ${receiptLoadError}`);}
+    if(setupResult){operationMessage=refreshIssues.length?`Setup completed, but ${refreshIssues.join("; ")}.`:"Setup completed. Installed versions, readiness, and receipts are refreshed.";}
+    else if(refreshIssues.length){operationMessage+=` ${refreshIssues.join("; ")}.`;}
+  }
+  render();
+}
+
+async function uninstallProgram(catalogId){
+  const entry=(setupData?.catalog?.items||[]).find(x=>x.id===catalogId);
+  if(!entry||uninstallBusy){return;}
+  const ok=window.confirm(`Uninstall ${entry.name}?\n\nThis runs silently through Winget (${entry.winget_id}). Nothing else is touched. A receipt with an integrity hash will be saved.`);
+  if(!ok){uninstallMessage="Cancelled. Nothing was removed.";render();return;}
+  uninstallBusy=catalogId; uninstallMessage=`Removing ${entry.name}…`; render();
+  try{
+    const r=sanitizeStateValue(JSON.parse(await invokeDesktop("uninstall_software",{catalogId,approved:true})));
+    uninstallMessage=r.receipt?.status==="uninstalled"?`${entry.name} was uninstalled. Receipt ${String(r.sha256||"").slice(0,12)}…`:`${entry.name} could not be uninstalled (exit code ${r.receipt?.exit_code??"unknown"}). Close the app and try again. Nothing else was changed.`;
+  }catch(err){uninstallMessage=String(err);}
+  uninstallBusy=""; render();
+  try{await loadInstallHistory();}catch(_e){/* history is informational */}
+  try{await refreshSoftwareIntelligence(true);graph=buildLiveGraph();}catch(_e){/* the next scan will correct the list */}
+  render();
+}
+
+async function uninstallSelfNow(){
+  if(!selfUninstallAck){return;}
+  const ok=window.confirm("Uninstall AssembleLink?\n\nThe app will close and remove itself silently, with no further prompts.\nPrograms it installed stay installed. Receipts and blueprints stay in your user profile.");
+  if(!ok){return;}
+  try{
+    await invokeDesktop("uninstall_assemblelink",{approved:true});
+    selfUninstalling=true; render();
+  }catch(err){uninstallMessage=String(err);render();}
+}
+
+async function updateToolkit(kitId){
+  const kit=(setupData?.toolkits?.toolkits||[]).find(k=>k.id===kitId);
+  if(!kit||kitBusy){return;}
+  kitBusy=kitId; kitNotes[kitId]="Checking for newer versions…"; render();
+  try{
+    await refreshSoftwareIntelligence(true);
+    const n=kitUpdates(kit,installedByCatalog()).length;
+    if(!n){kitNotes[kitId]="Everything installed in this toolkit is up to date.";}
+    else{
+      const plan=JSON.parse(await invokeDesktop("build_update_plan"));
+      if(plan.package_manager_available&&plan.item_count){kitNotes[kitId]="";kitBusy="";setupPlan=plan;setupResult=null;setupProgress=null;setupMode="update";wizardStep=3;operationMessage=`${n} update${n===1?"":"s"} in ${kit.name}. Review the plan and approve it; it lists every approved update, not just this toolkit.`;go("wizard");return;}
+      kitNotes[kitId]="Winget is unavailable, so I could not build an update plan.";
     }
-    render();
-  }); }
+  }catch(err){kitNotes[kitId]=String(err);}
+  kitBusy=""; render();
+}
 
-  const reviewRecovery=document.getElementById("reviewRecovery");
-  if(reviewRecovery){reviewRecovery.addEventListener("click",()=>{
-    setupPlan=setupRecovery.plan;
-    setupProgress=setupRecovery.progress;
-    setupMode=setupPlan.plan_type==="update"?"update":"setup";
-    activeTab="home";
-    sidebarContext=setupMode;
-    operationMessage="Review the interrupted plan, then explicitly approve the remaining work.";
-    render();
-  });}
-
-  const exportMachineBlueprint=document.getElementById("exportMachineBlueprint");
-  if(exportMachineBlueprint){exportMachineBlueprint.addEventListener("click",async()=>{
+const actions={
+  getStarted:()=>startWizard(),
+  retryScan:()=>rescanComputer(), retryScan2:()=>rescanComputer(), refreshSoftware:()=>rescanComputer(),
+  wizNext:()=>{wizardStep=2;render();window.scrollTo({top:0});},
+  wizBack:()=>{
+    if(wizardStep===2){wizardStep=1;}
+    else if(wizardStep===3){const m=setupMode;setupPlan=null;operationMessage="";if(m==="update"){setupMode="setup";go("updates");return;}if(m==="restore"){setupMode="setup";go("blueprints");return;}wizardStep=2;}
+    render();window.scrollTo({top:0});
+  },
+  reviewSetup:()=>buildPlan(),
+  wizFinish:()=>{resetRun();selectedToolkitIds.clear();selectedSoftwareIds.clear();wizardStep=1;setupMode="setup";go("home");},
+  addToSetup:()=>startWizard({step:2}),
+  approveSetup:()=>approveAndRun(),
+  reviewRecovery:()=>{setupPlan=setupRecovery.plan;setupProgress=setupRecovery.progress;setupResult=null;setupMode=setupPlan.plan_type==="update"?"update":"setup";wizardStep=3;operationMessage="Review the interrupted plan, then explicitly approve the remaining work.";go("wizard");},
+  retryRuntime:async()=>{setupLoadError="Retrying trusted desktop runtime…";render();await loadSetupData();if(setupData){await loadSetupRecovery();await refreshSystemProfile();try{await refreshSoftwareIntelligence(false);}catch(err){softwareScanError=String(err);}await refreshDriverProfile();await loadReceipts();graph=buildLiveGraph();}render();},
+  exportBlueprint:async()=>{try{operationMessage=`Blueprint exported to ${await invokeDesktop("export_blueprint")}. Keep the matching .sha256 file with it.`;}catch(err){operationMessage=String(err);}render();},
+  exportMachineBlueprint:async()=>{
     operationMessage="Refreshing installed software and building a verified machine blueprint…";render();
     try{
       const result=sanitizeStateValue(JSON.parse(await invokeDesktop("export_machine_blueprint",{machineType,maxAllocationGib:maxAllocationGb})));
@@ -1596,134 +1069,132 @@ function render(){
       await loadReceipts();
     }catch(err){operationMessage=String(err);}
     render();
-  });}
-
-  const refreshReceipts=document.getElementById("refreshReceipts");
-  if(refreshReceipts){refreshReceipts.addEventListener("click",async()=>{receiptLoadError="Refreshing local evidence…";render();await loadReceipts();render();});}
-  const refreshDrivers=document.getElementById("refreshDrivers");
-  if(refreshDrivers){refreshDrivers.addEventListener("click",async()=>{driverLoadError="Scanning local hardware and installed driver versions…";render();await refreshDriverProfile();await loadReceipts();render();});}
-  const retryRuntime=document.getElementById("retryRuntime");
-  if(retryRuntime){retryRuntime.addEventListener("click",async()=>{setupLoadError="Retrying trusted desktop runtime…";render();await loadSetupData();if(setupData){await loadSetupRecovery();await refreshSystemProfile();try{await refreshSoftwareIntelligence(false)}catch(err){operationMessage=String(err)};await refreshDriverProfile();await loadReceipts();graph=buildLiveGraph()}render();});}
-
-  document.querySelectorAll("[data-tab-jump]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      activeTab = btn.getAttribute("data-tab-jump");
-      selectedCapabilityId = null;
-      render();
-    });
-  });
-
-  document.querySelectorAll("[data-review]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      selectedCapabilityId = btn.getAttribute("data-review");
-      render();
-    });
-  });
-
-  const back = document.getElementById("backHome");
-  if(back){
-    back.addEventListener("click",()=>{
-      selectedCapabilityId = null;
-      render();
-    });
-  }
-
-  document.querySelectorAll("[data-stack-plan]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      const id=btn.getAttribute("data-stack-plan");
-      const toolkitByCapability={"software-development":"developer-essentials","local-ai":"local-ai","infrastructure":"cloud-infrastructure","game-development":"game-development","cybersecurity":"cybersecurity","content-creation":"content-creation"};
-      const toolkitId=toolkitByCapability[id];if(toolkitId){selectedToolkitIds.add(toolkitId);}
-      selectedCapabilityId=null;activeTab="home";setupMode="setup";sidebarContext="setup";setupPlan=null;setupResult=null;
-      operationMessage=toolkitId?"Toolkit selected. Review it and build the deterministic setup plan.":"Choose a reviewed toolkit below.";render();
-    });
-  });
-
-  document.querySelectorAll("[data-quick-toolkit]").forEach(btn=>btn.addEventListener("click",()=>{
-    const toolkitId=btn.getAttribute("data-quick-toolkit");
-    if(toolkitId){selectedToolkitIds.add(toolkitId);}
-    activeTab="home";setupMode="setup";sidebarContext="setup";setupPlan=null;setupResult=null;setupProgress=null;
-    operationMessage="Toolkit selected. Review the included tools, then build the setup plan.";
+  },
+  importBlueprint:async()=>{
+    const blueprintPath=document.getElementById("blueprintPath")?.value.trim()||"";
+    operationMessage="Validating blueprint integrity and catalog identities…";render();
+    try{setupPlan=JSON.parse(await invokeDesktop("import_blueprint",{blueprintPath,machineType,maxAllocationGib:maxAllocationGb}));setupResult=null;setupProgress=null;setupMode="restore";wizardStep=3;operationMessage="";go("wizard");return;}
+    catch(err){setupPlan=null;operationMessage=String(err);}
     render();
-  }));
+  },
+  scanUpdates:async()=>{
+    operationMessage="Scanning installed software and checking approved providers…";setupPlan=null;render();
+    try{
+      await refreshSoftwareIntelligence(true);
+      const plan=JSON.parse(await invokeDesktop("build_update_plan"));
+      if(plan.package_manager_available&&plan.item_count){setupPlan=plan;setupResult=null;setupProgress=null;setupMode="update";wizardStep=3;operationMessage="";go("wizard");return;}
+      operationMessage=plan.package_manager_available?"No approved updates were reported. Check unknown statuses before assuming everything is current.":"Winget is unavailable. Install or repair Windows App Installer, then try again.";
+    }catch(err){operationMessage=String(err);}
+    render();
+  },
+  analyzeRepository:async()=>{
+    repositoryPath=document.getElementById("repositoryPath")?.value.trim()||"";repositoryAnalysis=null;operationMessage="Reading supported project manifests…";render();
+    try{repositoryAnalysis=sanitizeStateValue(JSON.parse(await invokeDesktop("analyze_repository",{repositoryPath})));operationMessage="Project requirements mapped to the approved catalog. Nothing was installed.";}
+    catch(err){operationMessage=String(err);}
+    render();
+  },
+  useRepositoryRecommendations:()=>{selectedToolkitIds.clear();selectedSoftwareIds=new Set(repositoryAnalysis?.recommended_software_ids||[]);startWizard({step:2});operationMessage="Repository recommendations selected. Check your storage ceiling, then review the plan.";render();},
+  refreshAssurance:async()=>{
+    operationMessage="Rebuilding trusted workstation evidence…";render();
+    try{await refreshSystemProfile();await refreshDriverProfile();await refreshSoftwareIntelligence(true);graph=buildLiveGraph();await loadWorkstationAssurance();await loadReceipts();operationMessage="Workstation proof refreshed and sealed.";}
+    catch(err){workstationAssurance=null;workstationAssuranceError=String(err);operationMessage="Workstation proof could not be completed.";}
+    render();
+  },
+  refreshHistory:async()=>{installHistoryError="Reading install records…";render();await loadInstallHistory();render();},
+  refreshReceipts:async()=>{receiptLoadError="Refreshing local evidence…";render();await loadReceipts();render();},
+  refreshDrivers:async()=>{driverLoadError="Scanning local hardware and installed driver versions…";render();await refreshDriverProfile();await loadReceipts();render();},
+  welcomePanda:()=>actions.welcomeNext(), 
+  welcomeNext:()=>{welcomeStep=Math.min(welcomeStep+1,welcomeLines().length-1);patchDock();},
+  welcomeSkip:()=>dismissWelcome(),
+  welcomeLook:()=>dismissWelcome(),
+  welcomeStart:()=>dismissWelcome(()=>startWizard()),
+  invNext:()=>{if(invStep>=invSteps().length-1){finishInvTour();}else{applyInvStep(invStep+1);}render();},
+  invBack:()=>{applyInvStep(invStep-1);render();},
+  invSkip:()=>{finishInvTour();render();},
+  invReplay:()=>{invTourOn=true;applyInvStep(0);render();},
+  invMore:()=>{invLimit+=100;render();},
+  closeInvDetail:()=>{invSelected=null;render();},
+  toggleTechnical:()=>{showTechnical=!showTechnical;render();},
+  uninstallSelf:()=>uninstallSelfNow()
+};
 
-  document.querySelectorAll("[data-install-recommended]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      const id=btn.getAttribute("data-install-recommended");
-      const toolkitByCapability={"software-development":"developer-essentials","local-ai":"local-ai","infrastructure":"cloud-infrastructure","game-development":"game-development","cybersecurity":"cybersecurity","content-creation":"content-creation"};
-      const toolkitId=toolkitByCapability[id];if(toolkitId){selectedToolkitIds.add(toolkitId);}
-      selectedCapabilityId=null;activeTab="home";setupMode="setup";sidebarContext="setup";setupPlan=null;setupResult=null;
-      operationMessage=toolkitId?"Toolkit selected. Review it and build the deterministic setup plan.":"Choose a reviewed toolkit below.";render();
-    });
-  });
-
-  document.querySelectorAll("[data-browse-approved]").forEach(btn=>btn.addEventListener("click",()=>{
-    selectedCapabilityId=null;activeTab="home";setupMode="browse";sidebarContext="browse";setupPlan=null;setupResult=null;render();
-  }));
-
-  document.querySelectorAll("[data-software-index]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      selectedSoftwareIndex=Number(btn.getAttribute("data-software-index"));
-      render();
-    });
-  });
-
-  const closeSoftware=document.getElementById("closeSoftwareDetail");
-  if(closeSoftware){
-    closeSoftware.addEventListener("click",()=>{
-      selectedSoftwareIndex=null;
-      render();
-    });
+function onClick(e){
+  const t=e.target; if(!(t instanceof Element)){return;}
+  let el;
+  if((el=t.closest("[data-menu]"))){const id=el.getAttribute("data-menu");openMenu=openMenu===id?"":id;patchMenu();return;}
+  if((el=t.closest("[data-act]"))){openMenu="";const a=el.getAttribute("data-act");if(a==="rescan"){rescanComputer();}else if(a==="rehw"){view="drivers";actions.refreshDrivers();}return;}
+  if((el=t.closest("[data-kit-open]"))){openKit=el.getAttribute("data-kit-open");render();return;}
+  if(t.closest("[data-kit-close]")){openKit="";render();return;}
+  if((el=t.closest("[data-kit-update]"))){updateToolkit(el.getAttribute("data-kit-update"));return;}
+  if((el=t.closest("[data-kit-start]"))){startWizard({toolkit:el.getAttribute("data-kit-start"),step:2});return;}
+  if((el=t.closest("[data-go]"))){go(el.getAttribute("data-go"));return;}
+  if((el=t.closest("[data-kit-family]"))){kitFamily=el.getAttribute("data-kit-family");render();return;}
+  if((el=t.closest("[data-inv-filter]"))){invFilter=el.getAttribute("data-inv-filter");invSelected=null;pandaNote="";invLimit=80;render();return;}
+  if((el=t.closest("[data-inv-index]"))){const i=Number(el.getAttribute("data-inv-index"));invSelected=invSelected===i?null:i;render();return;}
+  if((el=t.closest("[data-panda-ask]"))){
+    const idx=invSteps().findIndex(x=>x.key===el.getAttribute("data-panda-ask"));
+    applyInvStep(idx<0?0:idx);render();return;
   }
-
-  const search=document.getElementById("softwareSearch");
-  if(search){
-    search.addEventListener("input",()=>{
-      softwareSearch=search.value;
-      render();
-    });
+  if((el=t.closest("[data-inv-open]"))){
+    const key=el.getAttribute("data-inv-open");
+    invTourOn=false;invFilter=key==="all"?"all":key;invSelected=null;invStep=Math.max(0,invSteps().findIndex(x=>x.key===(key==="all"?"all":key)));
+    go("inventory");return;
   }
+  if((el=t.closest("[data-find-catalog]"))){catalogSearch=el.getAttribute("data-find-catalog")||"";catalogCategory="all";go("catalog");return;}
+  if((el=t.closest("[data-uninstall-search]"))){uninstallSearch=el.getAttribute("data-uninstall-search")||"";go("uninstall");return;}
+  if((el=t.closest("[data-uninstall]"))){uninstallProgram(el.getAttribute("data-uninstall"));return;}
+  if((el=t.closest("[data-remove-software]"))){selectedSoftwareIds.delete(el.getAttribute("data-remove-software"));render();return;}
+  if((el=t.closest("button[id]"))&&actions[el.id]){actions[el.id](el);return;}
+  if(openMenu&&!t.closest(".menu")){openMenu="";patchMenu();}
+}
 
-  document.querySelectorAll("[data-software-filter]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      softwareFilter=btn.getAttribute("data-software-filter");
-      render();
-    });
-  });
-
-  document.querySelectorAll("[data-inventory-kind]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      softwareKindFilter=btn.getAttribute("data-inventory-kind");
-      selectedSoftwareIndex=null;
-      render();
-    });
-  });
-
-  const t = document.getElementById("toggleTechnical");
-  if(t){
-    t.addEventListener("click",()=>{
-      showTechnical = !showTechnical;
-      render();
-    });
+function onChange(e){
+  const t=e.target; if(!(t instanceof HTMLElement)){return;}
+  if(t.hasAttribute("data-toolkit-id")){const id=t.getAttribute("data-toolkit-id");t.checked?selectedToolkitIds.add(id):selectedToolkitIds.delete(id);setupPlan=null;render();return;}
+  if(t.hasAttribute("data-software-id")){const id=t.getAttribute("data-software-id");t.checked?selectedSoftwareIds.add(id):selectedSoftwareIds.delete(id);setupPlan=null;render();return;}
+  if(t.hasAttribute("data-machine-type")){
+    machineType=t.getAttribute("data-machine-type")==="laptop"?"laptop":"desktop";
+    if(machineType==="laptop"&&maxAllocationGb===100){maxAllocationGb=50;}
+    if(machineType==="desktop"&&maxAllocationGb===50){maxAllocationGb=100;}
+    setupPlan=null;render();return;
   }
+  if(t.id==="maxAllocationGb"){const next=Number(t.value);maxAllocationGb=Number.isInteger(next)?Math.max(5,Math.min(2048,next)):maxAllocationGb;setupPlan=null;render();return;}
+  if(t.id==="catalogCategorySelect"){catalogCategory=t.value||"all";render();return;}
+  if(t.id==="invCategory"){invCategory=t.value||"all";render();return;}
+  if(t.id==="selfAck"){selfUninstallAck=t.checked;render();}
+}
+
+function onInput(e){
+  const t=e.target; if(!(t instanceof HTMLInputElement)){return;}
+  const pos=t.selectionStart??0;
+  if(t.id==="catalogSearch"){catalogSearch=t.value;refocus("catalogSearch",pos);}
+  else if(t.id==="softwareSearch"){invSearch=t.value;refocus("softwareSearch",pos);}
+  else if(t.id==="kitSearch"){kitSearch=t.value;refocus("kitSearch",pos);}
+  else if(t.id==="uninstallSearch"){uninstallSearch=t.value;refocus("uninstallSearch",pos);}
+  else if(t.id==="repositoryPath"){repositoryPath=t.value;}
 }
 
 async function boot(){
+  const app=document.getElementById("app");
+  app?.addEventListener("click",onClick);
+  app?.addEventListener("change",onChange);
+  app?.addEventListener("input",onInput);
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(welcomeOpen){dismissWelcome();}else if(openMenu){openMenu="";patchMenu();}}});
   try{
     render();
     await loadSetupData();
     await loadSetupRecovery();
+    await loadReceipts();await loadInstallHistory();
     graph=buildLiveGraph();render();
     await refreshSystemProfile();render();
-    try{await refreshSoftwareIntelligence(false);graph=buildLiveGraph();render();}catch(err){softwareScanError=String(err);render();}
+    try{await refreshSoftwareIntelligence(false);graph=buildLiveGraph();}catch(err){softwareScanError=String(err);}
+    render();
     await loadGraph();
     await refreshDriverProfile();
     await loadWorkstationAssurance();
-    await loadReceipts();
-    await loadCapabilityStatusIndex();
-    await loadMissionConsole();
     render();
   }catch(err){
-    errorText = String(err && err.stack ? err.stack : err);
+    errorText=String(err&&err.stack?err.stack:err);
     render();
   }
 }

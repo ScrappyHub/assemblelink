@@ -4,21 +4,23 @@ Set-StrictMode -Version Latest
 
 $Ui=Join-Path $RepoRoot "ui\src\main.js"
 $Css=Join-Path $RepoRoot "ui\src\style.css"
+$Panda=Join-Path $RepoRoot "ui\src\panda.js"
+foreach($p in @($Ui,$Css,$Panda)){ if(-not(Test-Path -LiteralPath $p -PathType Leaf)){ throw ("UI_FILE_MISSING: "+$p) } }
 $raw=Get-Content -LiteralPath $Ui -Raw -Encoding UTF8
 $css=Get-Content -LiteralPath $Css -Raw -Encoding UTF8
+$panda=Get-Content -LiteralPath $Panda -Raw -Encoding UTF8
 
 $checks=@(
-  [pscustomobject]@{ item="mission title simplified"; ok=($raw -match 'Workstation missions') },
-  [pscustomobject]@{ item="mission impact hidden class"; ok=($raw -match 'missionImpact') },
-  [pscustomobject]@{ item="mission next class"; ok=($raw -match 'missionNext') },
-  [pscustomobject]@{ item="blueprint collapsed"; ok=($raw -match '<details class="panel blueprintPanel">') },
-  [pscustomobject]@{ item="recommended collapsed"; ok=($raw -match '<details class="panel recommendedNow">') },
-  [pscustomobject]@{ item="compact mission css"; ok=($css -match 'Mission Console polish') }
+  [pscustomobject]@{ item="reduced motion respected"; ok=($css -match 'prefers-reduced-motion: reduce') },
+  [pscustomobject]@{ item="no radar"; ok=($css -notmatch 'radar' -and $raw -notmatch 'radar') },
+  [pscustomobject]@{ item="lazy panda poses"; ok=($panda -match '"idle", "scan", "think", "happy", "sad", "carry"' -or $panda -match 'idle.*scan.*think.*happy.*sad.*carry') },
+  [pscustomobject]@{ item="text wraps instead of overflowing"; ok=($css -match 'overflow-wrap:anywhere') },
+  [pscustomobject]@{ item="slow panda motion only"; ok=($css -match '\.panda\[data-pose="carry"\]') }
 )
 
 foreach($c in $checks){
-  if(-not $c.ok){ throw ("HOME_MISSION_POLISH_CHECK_FAIL: "+$c.item) }
+  if(-not $c.ok){ throw ("CALM_MOTION_CHECK_FAIL: "+$c.item) }
 }
 
 $checks | Format-Table item,ok -AutoSize
-Write-Host "ASSEMBLELINK_HOME_MISSION_POLISH_AUDIT_OK" -ForegroundColor Green
+Write-Host "ASSEMBLELINK_HOME_MISSION_POLISH_V1_AUDIT_OK" -ForegroundColor Green

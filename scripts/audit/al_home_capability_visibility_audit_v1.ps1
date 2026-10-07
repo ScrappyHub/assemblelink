@@ -3,18 +3,23 @@ $ErrorActionPreference="Stop"
 Set-StrictMode -Version Latest
 
 $Ui=Join-Path $RepoRoot "ui\src\main.js"
+$Css=Join-Path $RepoRoot "ui\src\style.css"
+$Panda=Join-Path $RepoRoot "ui\src\panda.js"
+foreach($p in @($Ui,$Css,$Panda)){ if(-not(Test-Path -LiteralPath $p -PathType Leaf)){ throw ("UI_FILE_MISSING: "+$p) } }
 $raw=Get-Content -LiteralPath $Ui -Raw -Encoding UTF8
+$css=Get-Content -LiteralPath $Css -Raw -Encoding UTF8
+$panda=Get-Content -LiteralPath $Panda -Raw -Encoding UTF8
 
 $checks=@(
-  [pscustomobject]@{ item="popular toolkit renderer"; ok=($raw -match 'function renderDashboardToolkits') },
-  [pscustomobject]@{ item="six job starters"; ok=($raw -match 'developer-essentials' -and $raw -match 'cloud-infrastructure' -and $raw -match 'cybersecurity' -and $raw -match 'local-ai' -and $raw -match 'game-development' -and $raw -match 'content-creation') },
-  [pscustomobject]@{ item="toolkit choice action"; ok=($raw -match 'data-quick-toolkit') },
-  [pscustomobject]@{ item="toolkit action opens setup"; ok=($raw -match 'Toolkit selected\. Review the included tools') },
-  [pscustomobject]@{ item="all toolkit path visible"; ok=($raw -match 'See all \$\{all\.length\} toolkits') }
+  [pscustomobject]@{ item="toolkit gallery renderer"; ok=($raw -match 'function renderToolkits') },
+  [pscustomobject]@{ item="job family filter"; ok=($raw -match 'data-kit-family' -and $raw -match 'job_family') },
+  [pscustomobject]@{ item="toolkit start action"; ok=($raw -match 'Start with this' -and $raw -match 'startWizard') },
+  [pscustomobject]@{ item="toolkit gallery has its own layout"; ok=($css -match '\.kitGrid' -and $css -match '\.kitCard') },
+  [pscustomobject]@{ item="every tool visible per toolkit"; ok=($raw -match 'See the \$\{p\.total\} tools') }
 )
 
 foreach($c in $checks){
-  if(-not $c.ok){ throw ("HOME_CAPABILITY_VISIBILITY_FAIL: "+$c.item) }
+  if(-not $c.ok){ throw ("HOME_CAPABILITY_VISIBILITY_CHECK_FAIL: "+$c.item) }
 }
 
 $checks | Format-Table item,ok -AutoSize

@@ -3,14 +3,19 @@ $ErrorActionPreference="Stop"
 Set-StrictMode -Version Latest
 
 $Ui=Join-Path $RepoRoot "ui\src\main.js"
+$Css=Join-Path $RepoRoot "ui\src\style.css"
+$Panda=Join-Path $RepoRoot "ui\src\panda.js"
+foreach($p in @($Ui,$Css,$Panda)){ if(-not(Test-Path -LiteralPath $p -PathType Leaf)){ throw ("UI_FILE_MISSING: "+$p) } }
 $raw=Get-Content -LiteralPath $Ui -Raw -Encoding UTF8
+$css=Get-Content -LiteralPath $Css -Raw -Encoding UTF8
+$panda=Get-Content -LiteralPath $Panda -Raw -Encoding UTF8
 
 $checks=@(
-  [pscustomobject]@{ item="setup-first quick start"; ok=($raw -match 'function renderDashboardQuickStart' -and $raw -match 'Set up this computer') },
-  [pscustomobject]@{ item="software inventory overview"; ok=($raw -match 'function renderDashboardInventory' -and $raw -match 'Your software at a glance') },
-  [pscustomobject]@{ item="machine summary"; ok=($raw -match 'function renderDashboardMachine') },
-  [pscustomobject]@{ item="download by job"; ok=($raw -match 'function renderDashboardToolkits' -and $raw -match 'Popular workstation setups') },
-  [pscustomobject]@{ item="direct setup navigation"; ok=($raw -match 'data-setup-jump="setup"' -and $raw -match 'data-setup-jump="browse"' -and $raw -match 'data-setup-jump="update"') }
+  [pscustomobject]@{ item="get-started splash"; ok=($raw -match 'function renderHome' -and $raw -match 'id="getStarted"') },
+  [pscustomobject]@{ item="new and returning welcome"; ok=($raw -match 'Welcome to AssembleLink' -and $raw -match 'Welcome back') },
+  [pscustomobject]@{ item="click-through wizard with back and next"; ok=($raw -match 'function renderWizard' -and $raw -match 'id="wizNext"' -and $raw -match 'id="wizBack"') },
+  [pscustomobject]@{ item="four named steps"; ok=($raw -match 'Your computer' -and $raw -match 'Pick tools' -and $raw -match 'Review' -and $raw -match 'Install') },
+  [pscustomobject]@{ item="direct inventory shortcut"; ok=($raw -match 'data-go="inventory"') }
 )
 
 foreach($c in $checks){
