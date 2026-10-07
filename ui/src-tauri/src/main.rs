@@ -1111,6 +1111,126 @@ fn get_workstation_assurance(app: AppHandle) -> Result<String, String> {
     serde_json::to_string(&assurance).map_err(|e| e.to_string())
 }
 
+fn valid_winget_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+}
+
+// Uninstall only catalog-approved software, by exact winget id, silently, after explicit approval.
+#[tauri::command]
+fn uninstall_software(
+    app: AppHandle,
+    catalog_id: String,
+    approved: bool,
+) -> Result<String, String> {
+    if !approved {
+        return Err("UNINSTALL_REQUIRES_EXPLICIT_APPROVAL".into());
+    }
+    let (_guard, root) = locked_runtime(&app)?;
+    let catalog = read_json_file(&root.join("catalog/approved_software_sources.v1.json"))?;
+    let entries = catalog
+        .get("items")
+        .or_else(|| catalog.get("software"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "CATALOG_SHAPE_REJECTED".to_owned())?;
+    let entry = entries
+        .iter()
+        .find(|e| e.get("id").and_then(|v| v.as_str()) == Some(catalog_id.as_str()))
+        .ok_or_else(|| "UNINSTALL_TARGET_NOT_IN_CATALOG".to_owned())?;
+    let winget_id = entry
+        .get("winget_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned();
+    if !valid_winget_id(&winget_id) {
+        return Err("UNINSTALL_TARGET_HAS_NO_WINGET_ID".into());
+    }
+    let mut cmd = Command::new("winget.exe");
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+    cmd.args([
+        "uninstall",
+        "--id",
+        &winget_id,
+        "--exact",
+        "--silent",
+        "--disable-interactivity",
+        "--accept-source-agreements",
+    ]);
+    let output = cmd
+        .output()
+        .map_err(|e| format!("WINGET_START_FAILED: {e}"))?;
+    let ok = output.status.success();
+    let tail = |b: &[u8]| {
+        let t = String::from_utf8_lossy(b).to_string();
+        t.chars()
+            .rev()
+            .take(1200)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>()
+    };
+    let receipt = serde_json::json!({
+        "schema":"assemblelink.uninstall_receipt.v1",
+        "observed_utc": SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "catalog_id": catalog_id,
+        "winget_id": winget_id,
+        "status": if ok {"uninstalled"} else {"failed"},
+        "exit_code": output.status.code(),
+        "message": tail(&output.stdout),
+    });
+    let body = serde_json::to_vec_pretty(&receipt).map_err(|e| e.to_string())?;
+    let dir = root.join("state/uninstall_receipts");
+    if fs::create_dir_all(&dir).is_ok() {
+        let name = format!("uninstall.{}.{}.json", catalog_id, &sha256_hex(&body)[..12]);
+        let _ = fs::write(dir.join(name), &body);
+    }
+    serde_json::to_string(&serde_json::json!({"receipt":receipt,"sha256":sha256_hex(&body)}))
+        .map_err(|e| e.to_string())
+}
+
+// Silent self-uninstall: hand off to the installer's uninstall.exe (NSIS /S), then exit so no file is locked.
+#[tauri::command]
+fn uninstall_assemblelink(app: AppHandle, approved: bool) -> Result<String, String> {
+    if !approved {
+        return Err("UNINSTALL_REQUIRES_EXPLICIT_APPROVAL".into());
+    }
+    let exe = env::current_exe().map_err(|e| format!("CURRENT_EXE_UNKNOWN: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "INSTALL_DIR_UNKNOWN".to_owned())?
+        .to_path_buf();
+    let uninstaller = dir.join("uninstall.exe");
+    if !uninstaller.is_file() {
+        return Err("UNINSTALLER_NOT_FOUND: this copy is not an installed build (no uninstall.exe next to it)".into());
+    }
+    let uninstaller = plain_windows_path(&uninstaller);
+    let mut cmd = Command::new("cmd.exe");
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000008);
+    // ping gives the app about three seconds to exit before the silent uninstaller starts.
+    let line = format!(
+        "/C ping -n 4 127.0.0.1 >nul & \"{}\" /S",
+        uninstaller.display()
+    );
+    #[cfg(windows)]
+    cmd.raw_arg(line);
+    #[cfg(not(windows))]
+    cmd.arg(line);
+    cmd.spawn()
+        .map_err(|e| format!("UNINSTALLER_START_FAILED: {e}"))?;
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        handle.exit(0);
+    });
+    Ok("{\"status\":\"uninstalling\"}".into())
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -1135,7 +1255,9 @@ fn main() {
             get_receipts,
             refresh_driver_profile,
             refresh_system_profile,
-            get_workstation_assurance
+            get_workstation_assurance,
+            uninstall_software,
+            uninstall_assemblelink
         ])
         .run(tauri::generate_context!())
         .expect("error while running AssembleLink");
@@ -1144,6 +1266,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn winget_ids_are_restricted_to_safe_characters() {
+        assert!(valid_winget_id("Git.Git"));
+        assert!(valid_winget_id("Microsoft.VisualStudioCode"));
+        assert!(!valid_winget_id("Git.Git & calc"));
+        assert!(!valid_winget_id(""));
+    }
     #[test]
     fn verbatim_windows_prefix_is_removed_for_powershell() {
         assert_eq!(

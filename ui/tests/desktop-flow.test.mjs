@@ -25,7 +25,7 @@ test("machine rebuild export uses live catalog identities", async () => {
 
 test("repository manifests map to approved setup recommendations", async () => {
   const rust=await readFile(new URL("../src-tauri/src/main.rs",import.meta.url),"utf8");
-  assert.match(source,/Analyze a Project/);
+  assert.match(source,/Analyze a project/);
   assert.match(source,/invokeDesktop\("analyze_repository",\{repositoryPath\}\)/);
   assert.match(source,/recommended_software_ids/);
   assert.match(rust,/fn analyze_repository/);
@@ -38,7 +38,7 @@ test("browser preview cannot impersonate a successful install", () => {
 });
 
 test("new-machine setup is toolkit driven and approval bound", () => {
-  assert.match(source, /Set Up This Computer/);
+  assert.match(source, /Set up this computer/);
   assert.match(source, /invokeDesktop\("build_setup_plan"/);
   assert.match(source, /invokeDesktop\("execute_setup"/);
   assert.match(source, /const planId=setupPlan\.plan_id/);
@@ -52,7 +52,8 @@ test("new-machine setup is toolkit driven and approval bound", () => {
 });
 
 test("update and verified blueprint flows are exposed", () => {
-  assert.match(source, /Update My Tools/);
+  assert.match(source, /update my tools/);
+  assert.match(source, /Software updates/);
   assert.match(source, /invokeDesktop\("build_update_plan"/);
   assert.match(source, /invokeDesktop\("export_blueprint"/);
   assert.match(source, /invokeDesktop\("import_blueprint"/);
@@ -86,10 +87,12 @@ test("desktop runtime failures are visible and retryable", () => {
   assert.match(source, /Retrying trusted desktop runtime/);
 });
 
-test("sidebar exposes the actual setup and machine workflows", () => {
-  for(const label of ["Job toolkits","Software & CLI catalog","Updates","Installed software","Job readiness","Blueprints / Rebuild"]){assert.match(source,new RegExp(label.replace(/[&/]/g,"\\$&")));}
-  assert.match(source, /data-setup-jump/);
-  assert.match(source, /sidebarStatus/);
+test("menu bar exposes File, Logs, Drivers and Help workflows", () => {
+  assert.match(source, /role="menubar"/);
+  for(const label of ["File","Logs","Drivers","Help"]){assert.match(source,new RegExp(`label:"${label}"`));}
+  for(const label of ["Get started","Set up this computer","Job toolkits","Software & CLI catalog","Installed software","Job readiness","Analyze a project","Blueprints / Rebuild","Receipts","Workstation proof","Drivers & hardware","Software updates","How it works","Uninstall"]){assert.match(source,new RegExp(label.replace(/[&/.]/g,"\\$&")));}
+  assert.match(source, /e\.key==="Escape"/);
+  assert.doesNotMatch(source, /class="sidebar"/);
 });
 
 test("desktop runtime suppresses background PowerShell console windows", async () => {
@@ -103,7 +106,7 @@ test("local snapshot strings are sanitized before legacy panels render", () => {
   assert.match(source, /function sanitizeStateValue/);
   assert.match(source, /return sanitizeStateValue\(JSON\.parse\(text\)\)/);
   assert.match(source, /escapeHtml\(JSON\.stringify\(graph,null,2\)\)/);
-  assert.match(source, /value="\$\{escapeHtml\(softwareSearch\)\}"/);
+  assert.match(source, /value="\$\{escapeHtml\(invSearch\)\}"/);
 });
 
 test("receipt browser verifies and presents local evidence", async () => {
@@ -135,7 +138,6 @@ test("driver inventory is live, recommendation-only, and evidence backed", async
 test("overview hardware and storage metrics come from live desktop IPC", async () => {
   const rust=await readFile(new URL("../src-tauri/src/main.rs",import.meta.url),"utf8");
   assert.match(source, /invokeDesktop\("refresh_system_profile"\)/);
-  assert.match(source, /Review Storage Health/);
   assert.doesNotMatch(source, /C: and S: need cleanup attention/);
   assert.match(rust, /al_system_profile_v1\.ps1/);
   assert.match(rust, /refresh_system_profile/);
@@ -171,39 +173,40 @@ test("interrupted setup is discoverable and requires explicit resume approval", 
 });
 
 test("capability actions converge on approved setup without false legacy controls", () => {
-  assert.match(source, /Browse Approved Software/);
-  assert.match(source, /data-browse-approved/);
-  assert.match(source, /data-stack-plan/);
+  assert.match(source, /data-kit-start/);
+  assert.match(source, /id="addToSetup"/);
   assert.doesNotMatch(source, /saveCustomSoftware|CLI save wiring comes next/);
   assert.doesNotMatch(source, /function renderInstallQueue|function renderInstallPlan/);
   assert.doesNotMatch(source, /\.\/state\/install_queue|\.\/state\/install_plan/);
 });
 
-test("opening dashboard explains setup, downloads, updates, and installed software", () => {
-  assert.match(source, /function renderDashboardQuickStart/);
-  assert.match(source, /Set up this computer/);
-  assert.match(source, /Find software & CLI tools/);
-  assert.match(source, /Check for updates/);
-  assert.match(source, /function renderDashboardInventory/);
-  assert.match(source, /known tools/);
-  assert.match(source, /app candidates/);
-  assert.match(source, /components/);
+test("home is a get-started splash and the inventory is the panda's room", () => {
+  assert.match(source, /function renderHome/);
+  assert.match(source, /id="getStarted"/);
+  assert.match(source, /Welcome to AssembleLink/);
+  assert.match(source, /Welcome back/);
+  assert.match(source, /function renderInventory/);
+  assert.match(source, /roomSvg/);
+  assert.match(source, /data-panda-ask/);
+  assert.match(source, /Apps to review/);
+  assert.match(source, /Unknown version/);
   assert.match(source, /Inventory class/);
   assert.match(source, /Catalog action/);
-  assert.match(source, /data-inventory-kind/);
-  assert.match(source, /Apps to review/);
-  assert.match(source, /softwareKindFilter/);
-  assert.match(source, /versions to review/);
-  assert.match(source, /function renderDashboardMachine/);
-  assert.match(source, /function renderDashboardToolkits/);
-  assert.match(source, /data-quick-toolkit/);
-  assert.match(source, /sidebarContext!=="overview"/);
+  assert.match(source, /function shortVersion/);
+});
+
+test("job toolkits and readiness have their own screens", () => {
+  assert.match(source, /function renderToolkits/);
+  assert.match(source, /function renderReadiness/);
+  assert.match(source, /Complete this toolkit/);
+  assert.match(source, /kitGrid/);
+  assert.match(source, /readyGrid/);
 });
 
 test("workstation assurance is integrity checked, visible, and refreshable", async () => {
   const rust=await readFile(new URL("../src-tauri/src/main.rs",import.meta.url),"utf8");
   assert.match(source,/invokeDesktop\("get_workstation_assurance"\)/);
-  assert.match(source,/function renderDashboardAssurance/);
+  assert.match(source,/function renderProofPanel/);
   assert.match(source,/Unknown never means current/);
   assert.match(source,/id="refreshAssurance"/);
   assert.match(rust,/fn read_verified_state/);
@@ -224,16 +227,40 @@ test("the panda guide leads setup, scanning, review, install, and error states",
   assert.match(source, /import \{pandaSvg\} from "\.\/panda\.js"/);
   assert.match(source, /function pandaMood/);
   assert.match(source, /pose:"carry"/);
-  assert.match(source, /renderScanCard/);
   assert.match(source, /id="retryScan"/);
   assert.match(source, /data-countup/);
   assert.match(source, /carryTrack/);
   assert.match(css, /prefers-reduced-motion: reduce/);
 });
 
-test("setup keeps one decision visible and locks the selection while the plan is reviewed", () => {
-  assert.match(source, /class="modeTabs"/);
-  assert.match(source, /id="editSelection"/);
-  assert.match(source, /class="panel planPanel"/);
+test("setup is a four-step click-through with Back and Next", () => {
+  assert.match(source, /class="stepper"/);
+  assert.match(source, /id="wizNext"/);
+  assert.match(source, /id="wizBack"/);
+  assert.match(source, /id="reviewSetup"/);
+  assert.match(source, /id="approveSetup"/);
+  assert.match(source, /class="card planPanel/);
   assert.doesNotMatch(source, /nav\("licensing"/);
+});
+
+test("uninstalling programs and AssembleLink is approval bound and silent", async () => {
+  const rust=await readFile(new URL("../src-tauri/src/main.rs",import.meta.url),"utf8");
+  assert.match(source, /invokeDesktop\("uninstall_software",\{catalogId,approved:true\}\)/);
+  assert.match(source, /invokeDesktop\("uninstall_assemblelink",\{approved:true\}\)/);
+  assert.match(source, /window\.confirm\(`Uninstall \$\{entry\.name\}/);
+  assert.match(source, /id="selfAck"/);
+  assert.match(rust, /fn uninstall_software/);
+  assert.match(rust, /UNINSTALL_REQUIRES_EXPLICIT_APPROVAL/);
+  assert.match(rust, /UNINSTALL_TARGET_NOT_IN_CATALOG/);
+  assert.match(rust, /"--silent"/);
+  assert.match(rust, /"--exact"/);
+  assert.match(rust, /fn uninstall_assemblelink/);
+  assert.match(rust, /uninstall\.exe/);
+  assert.match(rust, /\/S/);
+  assert.match(rust, /uninstall_software,\s*uninstall_assemblelink/);
+});
+
+test("app icon set is wired for the window, taskbar and installer", async () => {
+  const conf=JSON.parse(await readFile(new URL("../src-tauri/tauri.conf.json",import.meta.url),"utf8"));
+  for(const icon of ["icons/icon.ico","icons/icon.png","icons/32x32.png","icons/128x128.png"]){assert.ok(conf.bundle.icon.includes(icon),icon);}
 });

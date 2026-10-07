@@ -3,19 +3,23 @@ $ErrorActionPreference="Stop"
 Set-StrictMode -Version Latest
 
 $Ui=Join-Path $RepoRoot "ui\src\main.js"
+$Css=Join-Path $RepoRoot "ui\src\style.css"
+$Panda=Join-Path $RepoRoot "ui\src\panda.js"
+foreach($p in @($Ui,$Css,$Panda)){ if(-not(Test-Path -LiteralPath $p -PathType Leaf)){ throw ("UI_FILE_MISSING: "+$p) } }
 $raw=Get-Content -LiteralPath $Ui -Raw -Encoding UTF8
+$css=Get-Content -LiteralPath $Css -Raw -Encoding UTF8
+$panda=Get-Content -LiteralPath $Panda -Raw -Encoding UTF8
 
 $checks=@(
-  [pscustomobject]@{ item="mission console global"; ok=($raw -match 'missionConsole') },
-  [pscustomobject]@{ item="mission console loader"; ok=($raw -match 'loadMissionConsole') },
-  [pscustomobject]@{ item="mission renderer"; ok=($raw -match 'renderMissionConsole') },
-  [pscustomobject]@{ item="blueprint readiness renderer"; ok=($raw -match 'renderBlueprintReadiness') },
-  [pscustomobject]@{ item="value strip renderer"; ok=($raw -match 'renderWorkstationValueStrip') },
-  [pscustomobject]@{ item="old capability start hidden"; ok=($raw -match 'capabilityStart" style="display:none"') }
+  [pscustomobject]@{ item="program uninstall is approval bound"; ok=($raw -match 'invokeDesktop\("uninstall_software",\{catalogId,approved:true\}\)' -and $raw -match 'window\.confirm') },
+  [pscustomobject]@{ item="self uninstall is approval bound"; ok=($raw -match 'invokeDesktop\("uninstall_assemblelink",\{approved:true\}\)' -and $raw -match 'id="selfAck"') },
+  [pscustomobject]@{ item="uninstall only for catalog entries"; ok=($raw -match 'winget_id' -and $raw -match 'Only tools in the approved catalog') },
+  [pscustomobject]@{ item="silent removal explained"; ok=($raw -match 'Removal runs without installer windows') },
+  [pscustomobject]@{ item="uninstall page reachable"; ok=($raw -match 'function renderUninstall') }
 )
 
 foreach($c in $checks){
-  if(-not $c.ok){ throw ("MISSION_CONSOLE_UI_CHECK_FAIL: "+$c.item) }
+  if(-not $c.ok){ throw ("UNINSTALL_UI_CHECK_FAIL: "+$c.item) }
 }
 
 $checks | Format-Table item,ok -AutoSize

@@ -3,14 +3,19 @@ $ErrorActionPreference="Stop"
 Set-StrictMode -Version Latest
 
 $Ui=Join-Path $RepoRoot "ui\src\main.js"
+$Css=Join-Path $RepoRoot "ui\src\style.css"
+$Panda=Join-Path $RepoRoot "ui\src\panda.js"
+foreach($p in @($Ui,$Css,$Panda)){ if(-not(Test-Path -LiteralPath $p -PathType Leaf)){ throw ("UI_FILE_MISSING: "+$p) } }
 $raw=Get-Content -LiteralPath $Ui -Raw -Encoding UTF8
+$css=Get-Content -LiteralPath $Css -Raw -Encoding UTF8
+$panda=Get-Content -LiteralPath $Panda -Raw -Encoding UTF8
 
 $checks=@(
-  [pscustomobject]@{ item="overview and setup workspace separated"; ok=($raw -match 'sidebarContext!=="overview"' -and $raw -match 'function renderSetupWorkspace') },
-  [pscustomobject]@{ item="quick start before inventory"; ok=($raw.IndexOf('${renderDashboardQuickStart()}') -lt $raw.IndexOf('${renderDashboardInventory()}')) },
-  [pscustomobject]@{ item="inventory before job toolkits"; ok=($raw.IndexOf('${renderDashboardInventory()}') -lt $raw.IndexOf('${renderDashboardToolkits()}')) },
-  [pscustomobject]@{ item="plain language inventory"; ok=($raw -match 'known tools' -and $raw -match 'updates available' -and $raw -match 'versions to review') },
-  [pscustomobject]@{ item="responsive dashboard styles"; ok=((Get-Content (Join-Path $RepoRoot 'ui\src\style.css') -Raw) -match 'quickStartGrid' -and (Get-Content (Join-Path $RepoRoot 'ui\src\style.css') -Raw) -match '@media \(max-width:620px\)') }
+  [pscustomobject]@{ item="top menu bar"; ok=($raw -match 'role="menubar"' -and $raw -match 'function renderMenuBar') },
+  [pscustomobject]@{ item="File Logs Drivers Help menus"; ok=($raw -match 'label:"File"' -and $raw -match 'label:"Logs"' -and $raw -match 'label:"Drivers"' -and $raw -match 'label:"Help"') },
+  [pscustomobject]@{ item="menus close on Escape"; ok=($raw -match 'e\.key==="Escape"') },
+  [pscustomobject]@{ item="uninstall lives in Help"; ok=($raw -match '"go","uninstall","Uninstall') },
+  [pscustomobject]@{ item="responsive layout"; ok=($css -match '@media \(max-width:820px\)' -and $css -match '\.wizNav') }
 )
 
 foreach($c in $checks){
