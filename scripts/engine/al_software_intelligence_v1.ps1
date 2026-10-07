@@ -12,6 +12,7 @@ function WriteUtf8([string]$p,[string]$t){EnsureDir (Split-Path -Parent $p);[IO.
 function Sha([string]$p){$stream=[IO.File]::OpenRead($p);$sha=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose();$stream.Dispose()}}
 function Prop($o,[string]$n,[string]$fallback=''){if($o -is [Collections.IDictionary]){if($o.Contains($n)-and$null-ne$o[$n]){return [string]$o[$n]};return $fallback};$p=$o.PSObject.Properties[$n];if($null -eq $p -or $null -eq $p.Value){return $fallback};return [string]$p.Value}
 function Normalize([string]$v){if([string]::IsNullOrWhiteSpace($v)){return ''};return (($v.ToLowerInvariant() -replace '[^a-z0-9]+',' ').Trim() -replace '\s+',' ')}
+function UtcTime($v){if($v -is [datetime]){return $v.ToUniversalTime()};return [datetime]::Parse([string]$v,[Globalization.CultureInfo]::InvariantCulture,([Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal))}
 function ClassifyUnmatched($app){
   $name=Prop $app 'name';$normalized=Normalize $name;$publisher=Normalize (Prop $app 'publisher');$parent=Prop $app 'parent_display_name';$release=Normalize (Prop $app 'release_type');$system=Prop $app 'system_component'
   if($system-eq'1'-or-not[string]::IsNullOrWhiteSpace($parent)-or$release-match'^(update|hotfix|security update)$'){return 'system_component'}
@@ -27,7 +28,7 @@ function CompareVersions([string]$installed,[string]$available){
   return 0
 }
 function GetRegistryInventory {
-  if($InventoryFixturePath){return @(Get-Content -LiteralPath $InventoryFixturePath -Raw|ConvertFrom-Json)}
+  if($InventoryFixturePath){$parsedInventory=Get-Content -LiteralPath $InventoryFixturePath -Raw|ConvertFrom-Json;return @($parsedInventory)}
   $items=@();$roots=@('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*')
   foreach($r in $roots){Get-ItemProperty $r -ErrorAction SilentlyContinue|Where-Object{-not[string]::IsNullOrWhiteSpace((Prop $_ 'DisplayName'))}|ForEach-Object{$items+=[pscustomobject]@{name=Prop $_ 'DisplayName';version=Prop $_ 'DisplayVersion';publisher=Prop $_ 'Publisher';source='registry_uninstall';system_component=Prop $_ 'SystemComponent';parent_display_name=Prop $_ 'ParentDisplayName';release_type=Prop $_ 'ReleaseType'}}}
   $cliProbes=[ordered]@{'git'='git.exe';'nodejs-lts'='node.exe';'python'='python.exe';'powershell'='pwsh.exe';'github-cli'='gh.exe';'rustup'='rustup.exe';'golang'='go.exe';'dotnet-sdk-8'='dotnet.exe';'temurin-jdk-21'='java.exe';'uv'='uv.exe';'terraform'='terraform.exe';'kubectl'='kubectl.exe';'helm'='helm.exe';'azure-cli'='az.exe';'aws-cli'='aws.exe';'google-cloud-cli'='gcloud.exe';'jq'='jq.exe';'yq'='yq.exe';'ripgrep'='rg.exe';'fd'='fd.exe';'bat'='bat.exe';'fzf'='fzf.exe';'cmake'='cmake.exe';'ninja'='ninja.exe';'llvm'='clang.exe';'ffmpeg'='ffmpeg.exe';'nmap'='nmap.exe';'hashcat'='hashcat.exe';'docker-desktop'='docker.exe';'podman'='podman.exe'}
@@ -40,7 +41,7 @@ function WingetProbe([string]$id,[string]$cacheDir){
   if($null-eq$script:WingetSnapshot){
     $script:WingetSnapshot=@{};$cache=Join-Path $cacheDir 'winget.inventory.json';$cached=$null
     if(Test-Path -LiteralPath $cache){try{$cached=Get-Content -LiteralPath $cache -Raw|ConvertFrom-Json}catch{$cached=$null}}
-    if($cached-and-not$ForceRefresh-and((Get-Date).ToUniversalTime()-[datetime]$cached.checked_utc).TotalHours-le$MaxCacheAgeHours){foreach($entry in @($cached.items)){$script:WingetSnapshot[[string]$entry.id]=[ordered]@{status=[string]$entry.status;installed_version=[string]$entry.installed_version;available_version=[string]$entry.available_version;freshness='cached'}}}
+    if($cached-and-not$ForceRefresh-and((Get-Date).ToUniversalTime()-(UtcTime $cached.checked_utc)).TotalHours-le$MaxCacheAgeHours){foreach($entry in @($cached.items)){$script:WingetSnapshot[[string]$entry.id]=[ordered]@{status=[string]$entry.status;installed_version=[string]$entry.installed_version;available_version=[string]$entry.available_version;freshness='cached'}}}
     else{
       $cmd=Get-Command winget.exe -ErrorAction SilentlyContinue
       if(-not$cmd){foreach($entry in @($catalog.items|Where-Object winget_id)){$script:WingetSnapshot[[string]$entry.winget_id]=[ordered]@{status='package_manager_unavailable';installed_version='';available_version='';freshness='unknown'}}}
@@ -65,7 +66,7 @@ function GitHubReleaseProbe($provider,[string]$cacheDir){
   $owner=Prop $provider 'owner';$repo=Prop $provider 'repo';if($owner-notmatch'^[A-Za-z0-9_.-]+$'-or$repo-notmatch'^[A-Za-z0-9_.-]+$'){return [ordered]@{status='invalid_provider';available_version='';freshness='unknown'}}
   $cache=Join-Path $cacheDir ("github.$owner.$repo.json");$now=(Get-Date).ToUniversalTime();$cached=$null
   if(Test-Path -LiteralPath $cache){try{$cached=Get-Content -LiteralPath $cache -Raw|ConvertFrom-Json}catch{$cached=$null}}
-  if($cached-and-not$ForceRefresh){$age=($now-[datetime]$cached.checked_utc).TotalHours;if($age-le$MaxCacheAgeHours){return [ordered]@{status='ok';available_version=[string]$cached.available_version;freshness='cached'}}}
+  if($cached-and-not$ForceRefresh){$age=($now-(UtcTime $cached.checked_utc)).TotalHours;if($age-le$MaxCacheAgeHours){return [ordered]@{status='ok';available_version=[string]$cached.available_version;freshness='cached'}}}
   try{
     $headers=@{'User-Agent'='AssembleLink/0.1';'Accept'='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'};if($cached-and(Prop $cached 'etag')){$headers['If-None-Match']=[string]$cached.etag}
     $response=Invoke-WebRequest -Uri "https://api.github.com/repos/$owner/$repo/releases/latest" -Headers $headers -Method Get -TimeoutSec 15 -MaximumRedirection 0 -ErrorAction Stop
@@ -73,7 +74,7 @@ function GitHubReleaseProbe($provider,[string]$cacheDir){
     $entry=[ordered]@{checked_utc=$now.ToString('o');available_version=$tag;etag=[string]$response.Headers.ETag};WriteUtf8 $cache ($entry|ConvertTo-Json -Depth 5)
     return [ordered]@{status='ok';available_version=$tag;freshness='live'}
   }catch{
-    if($cached){$age=($now-[datetime]$cached.checked_utc).TotalHours;return [ordered]@{status=$(if($age-gt$MaxCacheAgeHours){'stale_cache'}else{'provider_unavailable'});available_version=[string]$cached.available_version;freshness='stale'}}
+    if($cached){$age=($now-(UtcTime $cached.checked_utc)).TotalHours;return [ordered]@{status=$(if($age-gt$MaxCacheAgeHours){'stale_cache'}else{'provider_unavailable'});available_version=[string]$cached.available_version;freshness='stale'}}
     return [ordered]@{status='provider_unavailable';available_version='';freshness='unknown'}
   }
 }

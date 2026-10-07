@@ -1,9 +1,10 @@
 param([Parameter(Mandatory=$true)][string]$RepoRoot,[int]$RefreshIfOlderThanMinutes=10)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 function WriteUtf8($p,$t){$d=Split-Path -Parent $p;if($d){New-Item -ItemType Directory -Force $d|Out-Null};[IO.File]::WriteAllText($p,$t,(New-Object Text.UTF8Encoding($false)))}
+function UtcTime($v){if($v -is [datetime]){return $v.ToUniversalTime()};return [datetime]::Parse([string]$v,[Globalization.CultureInfo]::InvariantCulture,([Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal))}
 function PlanDigest($items){$lines=@('schema=assemblelink.setup_plan.v1');foreach($x in @($items|Sort-Object id)){$lines+=('item='+(@([string]$x.id,[string]$x.name,[string]$x.source,[string]$x.winget_id,[string]$x.license,[string][bool]$x.admin_required,[string][bool]$x.reboot_required,(@($x.dependencies|Sort-Object)-join ','),[string]$x.mode,[string]$x.status,[string]$x.installed_version,[string]$x.available_version)-join '|'))};$bytes=(New-Object Text.UTF8Encoding($false)).GetBytes((@($lines)-join"`n")+"`n");$sha=[Security.Cryptography.SHA256]::Create();try{return([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}}
 $intelligencePath=Join-Path $RepoRoot 'state\software_intelligence.latest.json';$refresh=$true
-if(Test-Path -LiteralPath $intelligencePath){try{$existing=Get-Content -LiteralPath $intelligencePath -Raw|ConvertFrom-Json;$refresh=(((Get-Date).ToUniversalTime()-[datetime]$existing.observed_utc).TotalMinutes-gt$RefreshIfOlderThanMinutes)}catch{$refresh=$true}}
+if(Test-Path -LiteralPath $intelligencePath){try{$existing=Get-Content -LiteralPath $intelligencePath -Raw|ConvertFrom-Json;$refresh=(((Get-Date).ToUniversalTime()-(UtcTime $existing.observed_utc)).TotalMinutes-gt$RefreshIfOlderThanMinutes)}catch{$refresh=$true}}
 if($refresh){& (Join-Path $RepoRoot 'scripts\engine\al_software_intelligence_v1.ps1') -RepoRoot $RepoRoot|Out-Null}
 $intelligence=Get-Content -LiteralPath $intelligencePath -Raw|ConvertFrom-Json;$catalog=Get-Content (Join-Path $RepoRoot 'catalog\approved_software_sources.v1.json') -Raw|ConvertFrom-Json;$items=@()
 foreach($observed in @($intelligence.items|Where-Object {$_.update_status-eq'update_available'-and$_.catalog_id})){
