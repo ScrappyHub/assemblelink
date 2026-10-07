@@ -1,5 +1,6 @@
 let workstationHealth = null;
 import "./style.css";
+import {pandaSvg} from "./panda.js";
 
 let graph = null;
 let capabilityStatusIndex = null;
@@ -43,6 +44,9 @@ let workstationAssurance = null;
 let workstationAssuranceError = "";
 let repositoryPath = "";
 let repositoryAnalysis = null;
+let softwareScanError = "";
+let lastViewKey = "";
+const countedKeys = new Set();
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const rawHtml=html=>({__trustedHtml:String(html)});
 
@@ -187,24 +191,92 @@ function renderMachineProfile(){
   const freeGb=Number(systemProfile?.storage?.free_gb);
   const overLimit=estimate.complete&&estimate.mib>limitMib;
   const overFree=Number.isFinite(freeGb)&&estimate.mib>freeGb*1024;
-  return `<section class="machinePlanner" aria-labelledby="machinePlannerTitle">
-    <div class="sectionHeading"><div><p class="eyebrow">Machine limits</p><h3 id="machinePlannerTitle">What are you setting up?</h3><p>These choices are sealed into the reviewed setup plan.</p></div></div>
-    <div class="machineTypeChoices" role="radiogroup" aria-label="Machine type">
-      <label class="${machineType==="desktop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="desktop" ${machineType==="desktop"?"checked":""}><b>Desktop</b><span>More room for larger SDKs, containers, engines, and local AI.</span></label>
-      <label class="${machineType==="laptop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="laptop" ${machineType==="laptop"?"checked":""}><b>Laptop</b><span>Keep the planned footprint tighter for portable storage.</span></label>
-    </div>
-    <div class="allocationControl">
-      <label for="maxAllocationGb"><b>Maximum planned allocation</b><span>How much storage may this setup plan use?</span></label>
-      <div><input id="maxAllocationGb" type="number" min="5" max="2048" step="1" value="${escapeHtml(maxAllocationGb)}"><span>GB</span></div>
-    </div>
-    <div class="allocationReadout ${overLimit||overFree?"overLimit":""}">
-      <div><span>Selected estimate</span><b>${estimate.itemCount?formatAllocation(estimate.mib):"Choose tools"}</b><small>${estimate.itemCount} resolved tools</small></div>
-      <div><span>Your ceiling</span><b>${escapeHtml(maxAllocationGb)} GB</b><small>${Number.isFinite(freeGb)?`${escapeHtml(freeGb)} GB currently free`:"Live free space unavailable"}</small></div>
+  return `<section class="machinePlanner compactPlanner" aria-labelledby="machinePlannerTitle">
+    <h3 id="machinePlannerTitle" class="plannerTitle">What are you setting up?</h3>
+    <div class="plannerRow">
+      <div class="machineTypeChoices" role="radiogroup" aria-label="Machine type">
+        <label class="${machineType==="desktop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="desktop" ${machineType==="desktop"?"checked":""}><b>Desktop</b><span>Room for larger SDKs, containers, and local AI.</span></label>
+        <label class="${machineType==="laptop"?"selected":""}"><input type="radio" name="machineType" data-machine-type="laptop" ${machineType==="laptop"?"checked":""}><b>Laptop</b><span>Keeps the footprint tighter for portable storage.</span></label>
+      </div>
+      <div class="allocationControl">
+        <label for="maxAllocationGb"><b>Maximum planned allocation</b><span>Storage this plan may use</span></label>
+        <div><input id="maxAllocationGb" type="number" min="5" max="2048" step="1" value="${escapeHtml(maxAllocationGb)}"><span>GB</span></div>
+      </div>
+      <div class="allocationReadout ${overLimit||overFree?"overLimit":""}">
+        <div><span>Selected estimate</span><b>${estimate.itemCount?formatAllocation(estimate.mib):"Choose tools"}</b><small>${estimate.itemCount} resolved tools</small></div>
+        <div><span>Your ceiling</span><b>${escapeHtml(maxAllocationGb)} GB</b><small>${Number.isFinite(freeGb)?`${escapeHtml(freeGb)} GB currently free`:"Live free space unavailable"}</small></div>
+      </div>
     </div>
     ${overLimit?`<p class="allocationWarning" role="alert">This selection is about ${formatAllocation(estimate.mib-limitMib)} over your chosen limit. Remove tools or raise the ceiling.</p>`:""}
     ${!overLimit&&overFree?`<p class="allocationWarning" role="alert">This estimate is larger than the currently reported free storage.</p>`:""}
     <p class="allocationLimit">Planning estimate only. Projects, package caches, containers, virtual machines, AI models, games, and later SDK downloads are not included.</p>
   </section>`;
+}
+
+function pandaMood(){
+  const total=Number(setupProgress?.total)||setupPlan?.item_count||0;
+  const done=Math.min(Number(setupProgress?.completed)||0,total);
+  const count=selectedToolkitIds.size+selectedSoftwareIds.size;
+  if(setupRunning){return {pose:"carry",title:"Carrying your tools over",text:`${done} of ${total} done. Keep me open; I save progress after every tool.`};}
+  if(errorText||(!setupData&&setupLoadError)){return {pose:"sad",title:"I could not start",text:"My trusted runtime is not answering. Retry, and open technical details if it keeps happening."};}
+  if(setupResult){return {pose:"happy",title:"All done",text:"Here is exactly what happened for every tool."};}
+  if(setupPlan){return {pose:"think",title:"Your plan is ready",text:"Check the list below. I will not install anything until you approve it."};}
+  if(softwareScanError){return {pose:"sad",title:"I could not finish looking around",text:"The software scan hit a problem. You can still pick tools, or ask me to scan again."};}
+  if(!softwareIntelligence){return {pose:"scan",title:"Looking around your computer",text:"Reading installed software, checking Winget, and matching the approved catalog."};}
+  const summary=softwareIntelligence.summary||{};
+  if(sidebarContext==="overview"){
+    const updates=Number(summary.updates_available)||0;
+    return {pose:"happy",title:`I found ${Number(summary.detected)||0} things on this computer`,text:`${Number(summary.catalog_matched)||0} are tools I can manage${updates?`, and ${updates} ${updates===1?"has":"have"} an update ready`:""}. What shall we do?`};
+  }
+  if(count>0){return {pose:"happy",title:`${count} ${count===1?"pick":"picks"} so far`,text:"Looking good. Review the plan when you are ready; nothing installs yet."};}
+  const idle={
+    setup:["Let us build your computer","Tell me the work you do, pick a toolkit, and I will gather every tool for it."],
+    browse:["Pick tools one by one","Search the approved catalog and tick what you want."],
+    update:["Let us check your tools","I will compare what you have with approved sources."],
+    repository:["Show me a project","Point me at a folder. I read its manifests and never run them."],
+    restore:["Restore a setup","Give me a verified blueprint and I will rebuild from it."]
+  };
+  const [title,text]=idle[setupMode]||idle.setup;
+  return {pose:"idle",title,text};
+}
+
+function renderPandaGuide(extra=""){
+  const mood=pandaMood();
+  return `<section class="pandaGuide" data-pose="${mood.pose}" aria-live="polite"><div class="pandaStage">${pandaSvg(mood.pose)}</div><div class="pandaSpeech"><b>${escapeHtml(mood.title)}</b><p>${escapeHtml(mood.text)}</p>${extra}</div></section>`;
+}
+
+function renderScanCard(){
+  if(softwareScanError){
+    return `<section class="scanCard scanFailed"><div><b>The software scan could not finish</b><p>Nothing was changed. You can still set up tools, or try the scan again.</p></div><button id="retryScan" class="secondaryAction">Scan again</button><details><summary>Technical details</summary><pre>${escapeHtml(softwareScanError)}</pre></details></section>`;
+  }
+  if(softwareIntelligence){return "";}
+  return `<section class="scanCard scanning" aria-live="polite"><div class="radar" aria-hidden="true"><i></i><i></i><i></i><span></span></div><ul class="scanSteps"><li>Reading installed software</li><li>Checking Winget</li><li>Matching the approved catalog</li></ul><div class="scanBar" aria-hidden="true"><span></span></div></section>`;
+}
+
+function renderReturningSummary(){
+  const total=Number(receiptIndex?.summary?.total)||0;
+  const newest=(receiptIndex?.items||[]).map(x=>Number(x.modified_unix)||0).sort((a,b)=>b-a)[0];
+  const scanned=softwareIntelligence?.observed_utc?new Date(softwareIntelligence.observed_utc).toLocaleString():"";
+  const parts=[scanned?`Scanned ${scanned}`:"",total?`${total} verified ${total===1?"receipt":"receipts"} on this computer`:"",newest?`Last setup record ${new Date(newest*1000).toLocaleDateString()}`:""].filter(Boolean);
+  return parts.length?`<p class="returningLine">${parts.map(escapeHtml).join(" · ")}</p>`:"";
+}
+
+function runCountUps(){
+  const reduce=window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  document.querySelectorAll("[data-countup]").forEach(node=>{
+    const target=Number(node.getAttribute("data-countup"))||0;
+    const key=`${node.getAttribute("data-count-key")||"count"}:${target}`;
+    if(reduce||countedKeys.has(key)||target===0){node.textContent=String(target);countedKeys.add(key);return;}
+    countedKeys.add(key);
+    const start=performance.now();
+    const step=now=>{
+      const t=Math.min(1,(now-start)/700);
+      node.textContent=String(Math.round(target*(1-Math.pow(1-t,3))));
+      if(t<1){requestAnimationFrame(step);}
+    };
+    node.textContent="0";
+    requestAnimationFrame(step);
+  });
 }
 
 function renderSetupConsole(){
@@ -221,30 +293,25 @@ function renderSetupConsole(){
   const canReview=selectedCount>0&&allocationValid;
   return `
     <section class="panel setupConsole">
-      <p class="eyebrow">Start here</p>
-      <h2>Build this computer</h2>
-      <p>Choose what you need. AssembleLink will show exactly what will be downloaded before asking for approval.</p>
       <ol class="setupSteps" aria-label="Setup process">
         <li class="active"><b>1</b><span>Choose tools</span></li>
         <li class="${setupPlan?"active":""}"><b>2</b><span>Review plan</span></li>
-        <li><b>3</b><span>Approve &amp; install</span></li>
+        <li class="${setupRunning||setupResult?"active":""}"><b>3</b><span>Approve &amp; install</span></li>
       </ol>
+      ${setupPlan?`<div class="reviewBar"><span><b>${setupRunning?"Installing.":setupResult?"Finished.":"Selection locked in."}</b> ${setupRunning?"Keep AssembleLink open; each tool is verified after it installs.":setupResult?"Every outcome is recorded in a receipt.":"Review the plan below; nothing is installed until you approve."}</span>${setupRunning?"":`<button id="editSelection" class="secondaryAction">← Change selection</button>`}</div>`:`
       ${renderSetupRecovery()}
-      <div class="actionGrid setupModes">
-        <button class="bigAction ${setupMode==="setup"?"active":""}" data-setup-mode="setup">Set Up This Computer<span>Install complete curated toolkits.</span></button>
-        <button class="bigAction ${setupMode==="browse"?"active":""}" data-setup-mode="browse">Browse All Software<span>Build a custom toolkit.</span></button>
-        <button class="bigAction ${setupMode==="update"?"active":""}" data-setup-mode="update">Update My Tools<span>Find approved installed-tool upgrades.</span></button>
-        <button class="bigAction ${setupMode==="repository"?"active":""}" data-setup-mode="repository">Analyze a Project<span>Detect runtimes and toolchains from repository manifests.</span></button>
-        <button class="bigAction ${setupMode==="restore"?"active":""}" data-setup-mode="restore">Restore Previous Setup<span>Load a verified AssembleLink blueprint.</span></button>
+      <div class="modeTabs" role="tablist" aria-label="Setup mode">
+        ${[["setup","Set Up This Computer","Install complete curated toolkits."],["browse","Browse All Software","Build a custom toolkit."],["update","Update My Tools","Find approved installed-tool upgrades."],["repository","Analyze a Project","Detect runtimes and toolchains from repository manifests."],["restore","Restore Previous Setup","Load a verified AssembleLink blueprint."]].map(([mode,label,hint])=>`<button role="tab" aria-selected="${setupMode===mode}" class="${setupMode===mode?"active":""}" data-setup-mode="${mode}" title="${hint}">${label}</button>`).join("")}
       </div>
       ${!['update','repository'].includes(setupMode)?renderMachineProfile():""}
-      ${setupMode==="setup"?`<h3>Choose a job toolkit</h3>${renderToolkitGroups(kits)}`:""}
+      ${setupMode==="setup"?`<h3 class="sectionTitle">Choose a job toolkit</h3>${renderToolkitGroups(kits)}`:""}
       ${setupMode==="browse"?`<h3>Approved software and CLI catalog</h3><div class="catalogToolbar"><label><span>Search tools</span><input id="catalogSearch" type="search" placeholder="Try Git, Python, Docker, or security" value="${escapeHtml(catalogSearch)}"></label><label><span>Category</span><select id="catalogCategorySelect">${categories.sort().map(c=>`<option value="${escapeHtml(c)}" ${catalogCategory===c?"selected":""}>${escapeHtml(c==="all"?"All categories":c.replaceAll("-"," "))}</option>`).join("")}</select></label></div><p class="catalogCount">${visibleItems.length} of ${items.length} trusted catalog entries shown</p><div class="setupChoices softwareChoices">${visibleItems.map(x=>{const installed=installedByCatalogId.get(x.id);return `<label class="${installed?"isInstalled":""}"><input type="checkbox" data-software-id="${escapeHtml(x.id)}" ${selectedSoftwareIds.has(x.id)?"checked":""}><b>${escapeHtml(x.name)}${installed?` <em class="installedMark">Installed${installed.installed_version?` · ${escapeHtml(installed.installed_version)}`:""}</em>`:""}</b><span>${escapeHtml((x.category||x.capabilities?.[0]||"software").replaceAll("-"," "))} · ${escapeHtml((x.license||"license review").replaceAll("_"," "))}</span><small>${escapeHtml(x.winget_id||"Manual review")}</small></label>`;}).join("")}</div>`:""}
       ${setupMode==="repository"?renderRepositoryAnalyzer():setupMode==="restore"?`<h3>Restore a verified blueprint</h3><p>Copy the blueprint and its <code>.sha256</code> file to this computer, then enter its full path.</p><input id="blueprintPath" placeholder="C:\\Users\\you\\Downloads\\AssembleLink-Blueprint.json"><button id="importBlueprint" class="primaryAction">Validate and review blueprint</button>`:setupMode==="update"?`<h3>Check approved tools for updates</h3><p>AssembleLink asks Winget about exact approved package identities. Review is still required before updating.</p><button id="scanUpdates" class="primaryAction">Check for updates</button>`:`<div class="selectionSummary"><span><b>${selectedCount}</b> ${selectedCount===1?"selection":"selections"} · ${allocationEstimate.itemCount?`${formatAllocation(allocationEstimate.mib)} estimated`:"no footprint yet"}</span><button id="reviewSetup" class="primaryAction" ${canReview?"":"disabled"}>Review download &amp; setup plan</button></div>${selectedCount===0?`<p class="selectionHint">Choose at least one toolkit or software item to continue.</p>`:!allocationValid?`<p class="selectionHint">Adjust the storage ceiling before continuing.</p>`:""}`}
+`}
       ${setupPlan?`<button id="exportBlueprint" class="secondaryAction">Export this selection as a blueprint</button>`:""}
       <p role="status">${escapeHtml(operationMessage)}</p>
     </section>
-    ${setupPlan?`<section class="panel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${setupPlan.machine_profile?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} estimated of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>${setupPlan.profile_guidance?.caution_count?`<p class="allocationWarning">${escapeHtml(setupPlan.profile_guidance.caution_count)} tools may have substantial storage, battery, memory, GPU, or thermal impact on a laptop.</p>`:""}`:""}${table(["Tool","Estimated size","Machine fit","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",x.profile_advisory==="review_laptop_resource_impact"?"Review laptop impact":"Compatible",x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
+    ${setupPlan&&!setupRunning&&!setupResult?`<section class="panel planPanel"><h2>Review ${setupPlan.plan_type==="update"?"update":"setup"} plan</h2><p><b>${setupPlan.item_count}</b> tools · ${setupPlan.automatic_count} automatic · ${setupPlan.manual_count} manual</p>${setupPlan.machine_profile?`<div class="planAllocation"><span>${escapeHtml(setupPlan.machine_profile.machine_type)} profile</span><b>${formatAllocation(setupPlan.allocation.estimated_installed_mib)} estimated of ${formatAllocation(setupPlan.allocation.max_allocation_mib)}</b><small>${formatAllocation(setupPlan.allocation.remaining_planned_mib)} planned headroom</small></div>${setupPlan.profile_guidance?.caution_count?`<p class="allocationWarning">${escapeHtml(setupPlan.profile_guidance.caution_count)} tools may have substantial storage, battery, memory, GPU, or thermal impact on a laptop.</p>`:""}`:""}${table(["Tool","Estimated size","Machine fit","Package identity","License","Dependencies","Admin / reboot","Action"],planItems.map(x=>[x.name,x.estimated_installed_mib?formatAllocation(x.estimated_installed_mib):"—",x.profile_advisory==="review_laptop_resource_impact"?"Review laptop impact":"Compatible",x.winget_id||"—",x.license.replaceAll("_"," "),(x.dependencies||[]).join(", ")||"—",`${x.admin_required?"Admin":"User"}${x.reboot_required?" · reboot possible":""}`,humanStatus(x.status)]))}${setupPlan.item_count?`<button id="approveSetup" class="primaryAction" ${setupRunning?"disabled":""}>${setupRunning?"Setup running…":setupRecovery?.plan?.plan_id===setupPlan.plan_id?"Approve and resume remaining tools":`Approve and ${setupPlan.plan_type==="update"?"update my tools":"set up this computer"}`}</button>`:""}</section>`:""}
     ${renderSetupProgress()}
     ${setupResult?renderSetupResult():""}
   `;
@@ -270,7 +337,8 @@ function renderSetupProgress(){
   return `<section class="panel setupProgress" aria-live="polite">
     <h2>Setup progress</h2>
     <p><b>${escapeHtml(status)}</b> · ${completed} of ${total} tools finished</p>
-    <progress value="${completed}" max="${Math.max(total,1)}">${completed} of ${total}</progress>
+    <div class="carryTrack" style="--pct:${Math.round(completed/Math.max(total,1)*100)}%"><div class="carryFill"></div><div class="carryRunner ${setupRunning?"walking":""}">${pandaSvg(setupProgress.status==="complete"?"happy":setupRunning?"carry":"idle","Panda carrying your tools")}</div></div>
+    <progress class="srOnly" value="${completed}" max="${Math.max(total,1)}">${completed} of ${total}</progress>
     <p>Keep AssembleLink open. Progress is saved after every tool.</p>
     ${rows.length?table(["Tool","Outcome","Details"],rows.map(x=>[x.name||x.winget_id||x.id,humanStatus(x.status),x.message])):""}
   </section>`;
@@ -278,7 +346,7 @@ function renderSetupProgress(){
 
 function renderToolkitGroups(kits){
   const families=[...new Set(kits.map(k=>k.job_family||"Other"))].sort();
-  return families.map(family=>`<section class="toolkitFamily"><h4>${escapeHtml(family)}</h4><div class="setupChoices">${kits.filter(k=>(k.job_family||"Other")===family).map(k=>`<label><input type="checkbox" data-toolkit-id="${escapeHtml(k.id)}" ${selectedToolkitIds.has(k.id)?"checked":""}><b>${escapeHtml(k.name)}</b><span>${escapeHtml(k.description)}</span><small>${k.software_ids.length} reviewed tools</small></label>`).join("")}</div></section>`).join("");
+  return families.map(family=>`<section class="toolkitFamily"><h4>${escapeHtml(family)}</h4><div class="setupChoices">${kits.filter(k=>(k.job_family||"Other")===family).map(k=>`<label class="toolkitCard ${selectedToolkitIds.has(k.id)?"isPicked":""}"><input type="checkbox" data-toolkit-id="${escapeHtml(k.id)}" ${selectedToolkitIds.has(k.id)?"checked":""}><i class="tick" aria-hidden="true"></i><b>${escapeHtml(k.name)}</b><span>${escapeHtml(k.description)}</span><small>${k.software_ids.length} reviewed tools</small></label>`).join("")}</div></section>`).join("");
 }
 
 function renderRepositoryAnalyzer(){
@@ -865,10 +933,10 @@ function renderDashboardInventory(){
       <button id="refreshSoftware" class="secondaryAction">Rescan computer</button>
     </div>
     <div class="inventoryMetrics">
-      <button data-tab-jump="software"><b>${known}</b><span>known tools</span><small>Matched to approved downloads</small></button>
-      <button data-tab-jump="software"><b>${detected}</b><span>detected entries</span><small>${appCandidates} app candidates · ${components} components</small></button>
-      <button data-setup-jump="update" class="${updates?"metricAttention":""}"><b>${updates}</b><span>updates available</span><small>${updates?"Ready to review":"No approved updates reported"}</small></button>
-      <button data-tab-jump="software" class="${unknown?"metricCaution":""}"><b>${unknown}</b><span>versions to review</span><small>Unknown never means current</small></button>
+      <button data-tab-jump="software"><b data-countup="${known}" data-count-key="known">${known}</b><span>known tools</span><small>Matched to approved downloads</small></button>
+      <button data-tab-jump="software"><b data-countup="${detected}" data-count-key="detected">${detected}</b><span>detected entries</span><small>${appCandidates} app candidates · ${components} components</small></button>
+      <button data-setup-jump="update" class="${updates?"metricAttention":""}"><b data-countup="${updates}" data-count-key="updates">${updates}</b><span>updates available</span><small>${updates?"Ready to review":"No approved updates reported"}</small></button>
+      <button data-tab-jump="software" class="${unknown?"metricCaution":""}"><b data-countup="${unknown}" data-count-key="unknown">${unknown}</b><span>versions to review</span><small>Unknown never means current</small></button>
     </div>
     ${provider==="package_manager_unavailable"?`<div class="inlineNotice"><b>Winget needs attention</b><span>Windows App Installer is unavailable, so package updates cannot be checked or installed automatically.</span></div>`:""}
   </section>`;
@@ -952,9 +1020,7 @@ function renderDashboardInstalled(){
 }
 
 function renderSetupWorkspace(){
-  const titles={setup:["Set up this computer","Choose a complete toolkit for the work you do."],browse:["Software & CLI catalog","Find approved downloads without visiting dozens of sites."],update:["Update your tools","Check installed versions against approved providers."],restore:["Restore a previous setup","Validate and rebuild from an AssembleLink blueprint."]};
-  const [title,subtitle]=titles[setupMode]||titles.setup;
-  return `<header class="workspaceHeader"><button data-setup-jump="overview" class="backLink">← Dashboard</button><p class="eyebrow">Setup center</p><h1>${title}</h1><p>${subtitle}</p></header>${renderSetupConsole()}`;
+  return `${renderPandaGuide()}${renderScanCard()}${renderSetupConsole()}`;
 }
 
 function renderHome(){
@@ -967,20 +1033,16 @@ function renderHome(){
   }
 
   if(sidebarContext!=="overview"){return renderSetupWorkspace();}
-  const identity = graph.workstation_identity || {};
 
   return `
-    <header class="dashboardHero">
-      <div><p class="eyebrow">AssembleLink dashboard</p><h1>${escapeHtml(identity.label||"Your workstation")}</h1><p>Set up a new machine, download complete developer toolkits, check versions, and see what is already installed.</p></div>
-      <div class="heroTrust"><span class="statusDot ${softwareIntelligence?"ready":"working"}"></span><div><b>${softwareIntelligence?"Local scan ready":"Scanning this computer"}</b><small>Downloads require review and approval</small></div></div>
-    </header>
+    ${renderPandaGuide(renderReturningSummary())}
+    ${renderScanCard()}
     ${setupRecovery?renderSetupRecovery():""}
     ${renderDashboardQuickStart()}
-    ${renderDashboardAssurance()}
-    ${renderDashboardInventory()}
+    ${softwareIntelligence?renderDashboardInventory():""}
     ${renderDashboardMachine()}
-    ${renderDashboardToolkits()}
     ${renderDashboardInstalled()}
+    <details class="proofDetails"><summary>Workstation proof and evidence</summary>${renderDashboardAssurance()}</details>
   `;
 }
 
@@ -1320,8 +1382,7 @@ function render(){
   el.innerHTML = `
     <main class="shell">
       <aside class="sidebar">
-        <div class="brand">AssembleLink</div>
-        <div class="subtitle">Set up, inspect, and rebuild this machine</div>
+        <div class="brandRow"><span class="brandPanda">${pandaSvg("idle","AssembleLink")}</span><div><div class="brand">AssembleLink</div><div class="subtitle">Set up, inspect, and rebuild this machine</div></div></div>
         <nav class="primaryNav">
           <small>GET STARTED</small>
           ${nav("home","Overview")}
@@ -1334,22 +1395,25 @@ function render(){
           ${nav("stacks","Job readiness")}
           ${nav("drivers","Drivers")}
           <small>PORTABILITY & TRUST</small>
-          ${nav("licensing","Licensing")}
           ${nav("export","Blueprints / Rebuild")}
           ${nav("receipts","Receipts")}
         </nav>
-        <div class="sidebarStatus"><span class="statusDot ${softwareIntelligence?"ready":"working"}"></span><div><b>${softwareIntelligence?`${softwareIntelligence.summary.detected} detected`:"Scanning machine"}</b><small>${softwareIntelligence?`${softwareIntelligence.summary.catalog_matched} catalog matched · ${softwareIntelligence.summary.unknown} unknown`:"Local inventory is loading"}</small></div></div>
+        <div class="sidebarStatus"><span class="statusDot ${softwareIntelligence?"ready":softwareScanError?"warn":"working"}"></span><div><b>${softwareIntelligence?`${softwareIntelligence.summary.detected} detected`:softwareScanError?"Scan needs attention":"Scanning machine"}</b><small>${softwareIntelligence?`${softwareIntelligence.summary.catalog_matched} catalog matched · ${softwareIntelligence.summary.unknown} unknown`:softwareScanError?"Open the dashboard to retry":"Local inventory is loading"}</small></div></div>
       </aside>
       <section class="workspace">
         ${renderPanel()}
-        <section class="panel">
-          <button id="toggleTechnical">${showTechnical ? "Hide" : "Show"} technical details</button>
+        <footer class="techFooter">
+          <button id="toggleTechnical" class="ghostBtn">${showTechnical ? "Hide" : "Show"} technical details</button>
           ${showTechnical ? `<pre>${escapeHtml(JSON.stringify(graph,null,2))}</pre>` : ""}
-        </section>
+        </footer>
       </section>
     </main>
   `;
 
+  const viewKey=`${activeTab}|${sidebarContext}|${setupMode}|${selectedCapabilityId||""}`;
+  if(viewKey!==lastViewKey){el.querySelector(".workspace")?.classList.add("viewEnter");}
+  lastViewKey=viewKey;
+  runCountUps();
   document.querySelectorAll("[data-tab]").forEach(btn=>{
     btn.addEventListener("click",()=>{
       activeTab = btn.getAttribute("data-tab");
@@ -1401,6 +1465,14 @@ function render(){
   if(catalogSearchInput){catalogSearchInput.addEventListener("input",()=>{catalogSearch=catalogSearchInput.value;const pos=catalogSearchInput.selectionStart;render();const next=document.getElementById("catalogSearch");next?.focus();next?.setSelectionRange(pos,pos);});}
   const catalogCategorySelect=document.getElementById("catalogCategorySelect");
   if(catalogCategorySelect){catalogCategorySelect.addEventListener("change",()=>{catalogCategory=catalogCategorySelect.value||"all";render();});}
+  const editSelection=document.getElementById("editSelection");
+  if(editSelection){editSelection.addEventListener("click",()=>{setupPlan=null;setupResult=null;setupProgress=null;operationMessage="";render();});}
+  const retryScan=document.getElementById("retryScan");
+  if(retryScan){retryScan.addEventListener("click",async()=>{
+    softwareScanError="";softwareIntelligence=null;render();
+    try{await refreshSoftwareIntelligence(true);graph=buildLiveGraph();}catch(err){softwareScanError=String(err);}
+    render();
+  });}
   const reviewSetup=document.getElementById("reviewSetup");
   if(reviewSetup){ reviewSetup.addEventListener("click",async()=>{
     operationMessage="Building a deterministic setup plan…"; setupResult=null; setupProgress=null; render();
@@ -1409,6 +1481,7 @@ function render(){
       operationMessage="Review every tool below. Nothing has been installed.";
     }catch(err){ operationMessage=String(err); setupPlan=null; }
     render();
+    document.querySelector(".planPanel")?.scrollIntoView({behavior:window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches?"auto":"smooth",block:"start"});
   }); }
   const scanUpdates=document.getElementById("scanUpdates");
   if(scanUpdates){scanUpdates.addEventListener("click",async()=>{
@@ -1466,7 +1539,7 @@ function render(){
     const planId=setupPlan.plan_id;
     setupRunning=true;
     if(!resuming){setupProgress={schema:"assemblelink.setup_execution.progress.v1",plan_id:planId,status:"running",total:setupPlan.item_count,completed:0,results:[]};}
-    operationMessage=resuming?"Resuming this computer setup. Previous outcomes are being revalidated…":"Setting up this computer. Progress is saved after every tool…"; render();
+    operationMessage=resuming?"Resuming this computer setup. Previous outcomes are being revalidated…":"Setting up this computer. Progress is saved after every tool…"; render(); window.scrollTo({top:0});
     const poll=async()=>{await loadSetupProgress(planId);render();};
     const progressTimer=window.setInterval(poll,750);
     void poll();
@@ -1642,7 +1715,7 @@ async function boot(){
     await loadSetupRecovery();
     graph=buildLiveGraph();render();
     await refreshSystemProfile();render();
-    try{await refreshSoftwareIntelligence(false);graph=buildLiveGraph();render();}catch(err){operationMessage=`Live software scan unavailable: ${String(err)}`;render();}
+    try{await refreshSoftwareIntelligence(false);graph=buildLiveGraph();render();}catch(err){softwareScanError=String(err);render();}
     await loadGraph();
     await refreshDriverProfile();
     await loadWorkstationAssurance();
