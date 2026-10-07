@@ -7,11 +7,11 @@ use std::{
     collections::BTreeSet,
     env,
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, Stdio},
     sync::{Mutex, MutexGuard},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
 #[cfg(not(debug_assertions))]
@@ -163,6 +163,86 @@ fn plain_windows_path(path: &Path) -> PathBuf {
     }
 }
 
+// Engines shell out to Winget, which can stall on a source refresh. Bound everything except installs.
+fn engine_time_limit(relative_script: &str) -> Option<Duration> {
+    match relative_script {
+        "scripts/engine/al_setup_execute_v1.ps1" => None,
+        "scripts/engine/al_software_intelligence_v1.ps1" => Some(Duration::from_secs(420)),
+        _ => Some(Duration::from_secs(240)),
+    }
+}
+
+struct Finished {
+    success: bool,
+    stdout: String,
+    stderr: String,
+}
+
+fn kill_process_tree(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let mut kill = Command::new("taskkill.exe");
+        kill.creation_flags(0x08000000);
+        let _ = kill
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .output();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn run_with_limit(mut cmd: Command, limit: Option<Duration>) -> Result<Finished, String> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("POWERSHELL_START_FAILED: {e}"))?;
+    let reader = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let out_pipe = child
+        .stdout
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    let err_pipe = child
+        .stderr
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    let out_thread = reader(out_pipe);
+    let err_thread = reader(err_pipe);
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if limit.is_some_and(|l| started.elapsed() > l) {
+                    kill_process_tree(&mut child);
+                    return Err(format!(
+                        "ENGINE_TIMEOUT: stopped after {} seconds. Winget may be waiting on its package sources. Try again in a moment.",
+                        started.elapsed().as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            Err(e) => return Err(format!("ENGINE_WAIT_FAILED: {e}")),
+        }
+    };
+    let stdout = out_thread.join().unwrap_or_default();
+    let stderr = err_thread.join().unwrap_or_default();
+    Ok(Finished {
+        success: status.success(),
+        stdout: String::from_utf8_lossy(&stdout).to_string(),
+        stderr: String::from_utf8_lossy(&stderr).to_string(),
+    })
+}
+
 fn run_ps(root: &Path, relative_script: &str, args: &[&str]) -> Result<String, String> {
     let root = plain_windows_path(root);
     let root = root.as_path();
@@ -184,17 +264,14 @@ fn run_ps(root: &Path, relative_script: &str, args: &[&str]) -> Result<String, S
     .arg("-RepoRoot")
     .arg(root);
     cmd.args(args);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("POWERSHELL_START_FAILED: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
+    let finished = run_with_limit(cmd, engine_time_limit(relative_script))?;
+    if !finished.success {
         return Err(format!(
-            "ENGINE_FAILED ({relative_script})\n{stdout}\n{stderr}"
+            "ENGINE_FAILED ({relative_script})\n{}\n{}",
+            finished.stdout, finished.stderr
         ));
     }
-    Ok(stdout)
+    Ok(finished.stdout)
 }
 
 fn read_state(root: &Path, name: &str) -> Result<String, String> {
@@ -1751,5 +1828,21 @@ mod tests {
         fs::write(&path, body.replace("installed", "tampered!")).unwrap();
         assert_eq!(install_history(&base)["runs"][0]["integrity"], "mismatch");
         let _ = fs::remove_dir_all(base);
+    }
+    #[test]
+    fn engine_limits_exempt_only_installs() {
+        assert!(engine_time_limit("scripts/engine/al_setup_execute_v1.ps1").is_none());
+        assert!(engine_time_limit("scripts/engine/al_setup_plan_v1.ps1").is_some());
+        assert!(engine_time_limit("scripts/engine/al_software_intelligence_v1.ps1").is_some());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn stalled_engine_is_stopped_at_the_limit() {
+        let mut cmd = Command::new("cmd.exe");
+        cmd.args(["/C", "ping -n 20 127.0.0.1 >nul"]);
+        let started = Instant::now();
+        let result = run_with_limit(cmd, Some(Duration::from_millis(800)));
+        assert!(result.is_err_and(|e| e.starts_with("ENGINE_TIMEOUT")));
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }

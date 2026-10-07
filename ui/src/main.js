@@ -898,13 +898,13 @@ function renderAbout(){
 }
 
 // ---------- Uninstall ----------
+function renderBye(){
+  return `<div class="byeVeil" role="alertdialog" aria-live="assertive" aria-label="Goodbye"><div class="byePanda">${pandaSvg("wave","The panda waves goodbye")}</div><h1>Goodbye!</h1><p>AssembleLink is removing itself silently. This window will close in a moment.</p></div>`;
+}
 function renderUninstall(){
   const catalog=new Map((setupData?.catalog?.items||[]).map(x=>[x.id,x]));
   const q=uninstallSearch.toLowerCase();
   const rows=[...installedByCatalog().values()].filter(x=>catalog.get(x.catalog_id)?.winget_id).filter(x=>!q||`${x.name||""} ${x.catalog_id}`.toLowerCase().includes(q)).sort((a,b)=>String(a.name||a.catalog_id).localeCompare(String(b.name||b.catalog_id)));
-  if(selfUninstalling){
-    return `<section class="splash"><div class="splashPanda" data-pose="sad">${pandaSvg("sad")}</div><h1>Goodbye for now</h1><p class="lead">AssembleLink is removing itself silently. This window will close in a moment.</p></section>`;
-  }
   return `${pageHead("Uninstall","Remove programs I manage, or remove AssembleLink itself. Both run silently.")}
     <section class="card"><h2>Uninstall a program</h2>
       <p>Only tools in the approved catalog can be removed here. For any other app, use Windows Settings → Apps → Installed apps.</p>
@@ -948,7 +948,7 @@ function render(){
   const el=document.getElementById("app");
   if(!el){document.body.innerHTML="<pre>APP_ROOT_MISSING</pre>";return;}
   const keepScroll=el.querySelector(".scrollBody")?.scrollTop||0;
-  el.innerHTML=`<div class="appShell">${renderMenuBar()}<main class="page view-${escapeHtml(view)}" id="main">${errorText?`<section class="card"><h2>Something went wrong</h2><pre class="techPre">${escapeHtml(errorText)}</pre></section>`:renderPanel()}</main>${welcomeOpen&&view==="home"?renderWelcome():""}</div>`;
+  el.innerHTML=`<div class="appShell">${renderMenuBar()}<main class="page view-${escapeHtml(view)}" id="main">${errorText?`<section class="card"><h2>Something went wrong</h2><pre class="techPre">${escapeHtml(errorText)}</pre></section>`:renderPanel()}</main>${welcomeOpen&&view==="home"?renderWelcome():""}${selfUninstalling?renderBye():""}</div>`;
   const viewKey=`${view}|${wizardStep}`;
   if(viewKey!==lastViewKey){el.querySelector(".page")?.classList.add("viewEnter");}
   lastViewKey=viewKey;
