@@ -1,5 +1,7 @@
 # SignPath Foundation Signing v1 (proposal)
 
+> **Status (2026-10-08): not currently available.** The SignPath Foundation application was declined because the project does not yet have enough public track record. Revisit after more releases and public adoption. Until a signing route exists, only unsigned `UNSIGNED-DEVELOPMENT` previews are published.
+
 Status: implementation proposal; does not weaken or replace a canonical contract. Supersedes the "open question" in MICROSOFT_STORE_AND_DEV_SIGNING_V1.md.
 
 ## Why

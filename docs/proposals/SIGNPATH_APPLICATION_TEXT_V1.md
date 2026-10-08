@@ -1,5 +1,7 @@
 # SignPath Foundation application text (draft)
 
+> **Status (2026-10-08): declined** for insufficient public track record. Keep this text for a later reapplication after more releases and public adoption.
+
 Copy these answers into the SignPath Foundation OSS application form. Verify each requirement against their current terms before submitting.
 
 **Project name:** AssembleLink

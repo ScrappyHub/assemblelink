@@ -4,7 +4,7 @@
 
 - [x] Restore or initialize valid Git metadata.
 - [x] Configure the intended GitHub remote.
-- [x] Project license: MIT (see LICENSE). Required for the SignPath Foundation free-signing route.
+- [x] Project license: MIT (see LICENSE). Required by free open-source signing programs.
 - [ ] Enable branch protection and require the test workflow.
 - [ ] Review `SECURITY.md` contact instructions.
 

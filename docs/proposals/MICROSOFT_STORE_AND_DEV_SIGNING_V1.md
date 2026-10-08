@@ -32,3 +32,5 @@ Status: implementation proposal; this does not weaken or replace a canonical con
 ## Open question for the owner
 
 Which trusted signing option (Azure Artifact Signing, OV with cloud signing, EV) will produce the signature the Store and GitHub both require? That decision gates both channels.
+
+Status (2026-10-08): SignPath Foundation declined the project for insufficient public track record. Azure Artifact Signing was set up and validated for an individual, but individual validation places the legal name and locality in the certificate subject, which the maintainer chose not to publish. Remaining routes: an organization identity (for example an LLC) validated through Azure Artifact Signing, or reapplying to SignPath later. Until then only unsigned previews are published.
